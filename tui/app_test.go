@@ -2275,7 +2275,7 @@ func TestDiffViewerCommentEditorEscapeLeavesInsertThenClosesAndSaves(t *testing.
 	}
 }
 
-func TestDiffViewerFocusAdjacentCommentStartsAtBeginningFromEitherDirection(t *testing.T) {
+func TestDiffViewerFocusAdjacentCommentStartsAtDirectionEdge(t *testing.T) {
 	viewer := &diffViewer{
 		rows: []diff.Row{
 			{
@@ -2328,8 +2328,19 @@ func TestDiffViewerFocusAdjacentCommentStartsAtBeginningFromEitherDirection(t *t
 	if cmd != CommandRedraw || viewer.editor == nil || viewer.mode != modeNormal {
 		t.Fatalf("up command/editor/mode = %v/%v/%v, want focused comment", cmd, viewer.editor != nil, viewer.mode)
 	}
-	if got, want := (selectionPoint{Row: viewer.editor.row, Col: viewer.editor.col}), (selectionPoint{Row: 0, Col: 0}); got != want {
+	if got, want := (selectionPoint{Row: viewer.editor.row, Col: viewer.editor.col}), (selectionPoint{Row: 1, Col: 0}); got != want {
 		t.Fatalf("up editor cursor = %+v, want %+v", got, want)
+	}
+
+	cmd, err = viewer.HandleEvent(vaxis.Key{Text: "k", Keycode: 'k'})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd != CommandRedraw {
+		t.Fatalf("move within comment command = %v, want %v", cmd, CommandRedraw)
+	}
+	if got, want := (selectionPoint{Row: viewer.editor.row, Col: viewer.editor.col}), (selectionPoint{Row: 0, Col: 0}); got != want {
+		t.Fatalf("second up editor cursor = %+v, want %+v", got, want)
 	}
 }
 

@@ -4077,6 +4077,10 @@ func (d *diffViewer) openReviewCommentEditor() bool {
 }
 
 func (d *diffViewer) openReviewCommentEditorAtIndex(index int) bool {
+	return d.openReviewCommentEditorAtIndexFromDirection(index, 1)
+}
+
+func (d *diffViewer) openReviewCommentEditorAtIndexFromDirection(index int, direction int) bool {
 	if index < 0 || index >= len(d.reviewDrafts) {
 		return false
 	}
@@ -4088,6 +4092,9 @@ func (d *diffViewer) openReviewCommentEditorAtIndex(index int) bool {
 	}
 	d.editor.row = 0
 	d.editor.col = 0
+	if direction < 0 {
+		d.moveCommentEditorCursorToLastDisplayLineStart()
+	}
 	d.commentSelection = textSelection{}
 	if targetRow := d.commentEditorTargetRow(); targetRow >= 0 {
 		col := 0
@@ -4101,6 +4108,24 @@ func (d *diffViewer) openReviewCommentEditorAtIndex(index int) bool {
 	d.syncCommentEditorScroll()
 	d.ensureCursorVisible()
 	return true
+}
+
+func (d *diffViewer) moveCommentEditorCursorToLastDisplayLineStart() {
+	if d.editor == nil || len(d.editor.lines) == 0 {
+		return
+	}
+	layout, ok := d.commentEditorLayout(d.width, d.height)
+	if ok {
+		lines := d.editor.wrappedLines(layout.inputWidth)
+		if len(lines) > 0 {
+			line := lines[len(lines)-1]
+			d.editor.row = line.line
+			d.editor.col = line.start
+			return
+		}
+	}
+	d.editor.row = len(d.editor.lines) - 1
+	d.editor.col = 0
 }
 
 func (d *diffViewer) handleCommentKey(key vaxis.Key) Command {
@@ -5398,7 +5423,7 @@ func (d *diffViewer) focusAdjacentComment(direction int) bool {
 		if len(indexes) == 0 {
 			return false
 		}
-		return d.openReviewCommentEditorAtIndex(indexes[0])
+		return d.openReviewCommentEditorAtIndexFromDirection(indexes[0], direction)
 	}
 	if row == 0 {
 		return false
@@ -5407,7 +5432,7 @@ func (d *diffViewer) focusAdjacentComment(direction int) bool {
 	if len(indexes) == 0 {
 		return false
 	}
-	return d.openReviewCommentEditorAtIndex(indexes[len(indexes)-1])
+	return d.openReviewCommentEditorAtIndexFromDirection(indexes[len(indexes)-1], direction)
 }
 
 func (d *diffViewer) commentEditorTargetRow() int {
