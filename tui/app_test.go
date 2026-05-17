@@ -2248,6 +2248,64 @@ func TestDiffViewerCommentEditorEscapeLeavesInsertThenClosesAndSaves(t *testing.
 	}
 }
 
+func TestDiffViewerFocusAdjacentCommentStartsAtBeginningFromEitherDirection(t *testing.T) {
+	viewer := &diffViewer{
+		rows: []diff.Row{
+			{
+				Kind:   diff.RowAdd,
+				Text:   "hello",
+				Code:   "hello",
+				Review: review.Anchor{Path: "main.go", Line: 12, Side: review.SideRight},
+			},
+			{
+				Kind:   diff.RowAdd,
+				Text:   "world",
+				Code:   "world",
+				Review: review.Anchor{Path: "main.go", Line: 13, Side: review.SideRight},
+			},
+		},
+		reviewDrafts: []review.CommentDraft{{
+			Path: "main.go",
+			Line: 12,
+			Side: review.SideRight,
+			Body: "first\nsecond",
+		}},
+	}
+	viewer.Layout(Tight(Size{Width: 80, Height: 10}))
+
+	cmd, err := viewer.HandleEvent(vaxis.Key{Text: "j", Keycode: 'j'})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd != CommandRedraw || viewer.editor == nil || viewer.mode != modeNormal {
+		t.Fatalf("down command/editor/mode = %v/%v/%v, want focused comment", cmd, viewer.editor != nil, viewer.mode)
+	}
+	if got, want := (selectionPoint{Row: viewer.editor.row, Col: viewer.editor.col}), (selectionPoint{Row: 0, Col: 0}); got != want {
+		t.Fatalf("down editor cursor = %+v, want %+v", got, want)
+	}
+
+	for i := 0; i < 2; i++ {
+		cmd, err = viewer.HandleEvent(vaxis.Key{Text: "j", Keycode: 'j'})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if cmd != CommandRedraw || viewer.editor != nil || viewer.cursor.Row != 1 {
+		t.Fatalf("leave down command/editor/cursor = %v/%v/%d, want row 1", cmd, viewer.editor != nil, viewer.cursor.Row)
+	}
+
+	cmd, err = viewer.HandleEvent(vaxis.Key{Text: "k", Keycode: 'k'})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd != CommandRedraw || viewer.editor == nil || viewer.mode != modeNormal {
+		t.Fatalf("up command/editor/mode = %v/%v/%v, want focused comment", cmd, viewer.editor != nil, viewer.mode)
+	}
+	if got, want := (selectionPoint{Row: viewer.editor.row, Col: viewer.editor.col}), (selectionPoint{Row: 0, Col: 0}); got != want {
+		t.Fatalf("up editor cursor = %+v, want %+v", got, want)
+	}
+}
+
 func TestDiffViewerInsertReopensExistingComment(t *testing.T) {
 	viewer := &diffViewer{
 		rows: []diff.Row{{

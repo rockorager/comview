@@ -5403,14 +5403,7 @@ func (d *diffViewer) focusAdjacentComment(direction int) bool {
 	if len(indexes) == 0 {
 		return false
 	}
-	if !d.openReviewCommentEditorAtIndex(indexes[len(indexes)-1]) {
-		return false
-	}
-	if d.editor != nil {
-		d.editor.row = len(d.editor.lines) - 1
-		d.editor.col = utf8.RuneCountInString(d.editor.lines[d.editor.row])
-	}
-	return true
+	return d.openReviewCommentEditorAtIndex(indexes[len(indexes)-1])
 }
 
 func (d *diffViewer) commentEditorTargetRow() int {
