@@ -17,11 +17,13 @@ func runUIDiff(rows []diff.Row) error {
 	if err != nil {
 		return err
 	}
+	root := uiDiffRootWithReviewFileAndBindings(rows, cfg.Wrap, commentFile.Comments, commentPath, true, newBindings(cfg.Keybindings)).(uiDiffView)
+	root.WorkTreeRoot = gitWorkTreeRoot()
 	if cfg.Theme != "" {
 		if t, ok := ThemeByName(cfg.Theme); ok {
 			theme := uiThemeFromBaseColors(t.Colors)
-			return vui.Run(uiDiffRootWithReviewFileAndBindings(rows, cfg.Wrap, commentFile.Comments, commentPath, true, newBindings(cfg.Keybindings)), vui.WithTheme(theme))
+			return vui.Run(root, vui.WithTheme(theme))
 		}
 	}
-	return vui.Run(uiDiffRootWithReviewFileAndBindings(rows, cfg.Wrap, commentFile.Comments, commentPath, true, newBindings(cfg.Keybindings)))
+	return vui.Run(root)
 }

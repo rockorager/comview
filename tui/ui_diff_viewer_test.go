@@ -1484,6 +1484,20 @@ func TestUIDiffViewEditorTargetFallsBackToLineOne(t *testing.T) {
 	}
 }
 
+func TestEditorPathInRootUsesWorktreeRootForRelativePaths(t *testing.T) {
+	root := t.TempDir()
+	if got, want := editorPathInRoot("sub/main.go", root), filepath.Join(root, "sub/main.go"); got != want {
+		t.Fatalf("path = %q, want %q", got, want)
+	}
+}
+
+func TestEditorPathInRootLeavesAbsolutePathsAlone(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "main.go")
+	if got := editorPathInRoot(path, t.TempDir()); got != path {
+		t.Fatalf("path = %q, want %q", got, path)
+	}
+}
+
 func TestUIDiffViewOReportsMissingFile(t *testing.T) {
 	app := newUIDiffTestAppWithBaseDraftsAndStatus([]diff.Row{{Kind: diff.RowBlank}}, DefaultBaseColors(), false, nil, true)
 	size := vui.Size{Width: 40, Height: 3}

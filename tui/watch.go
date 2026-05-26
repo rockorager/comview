@@ -29,10 +29,11 @@ func RunWatch(command []string) error {
 }
 
 type uiWatchView struct {
-	Command []string
-	Config  Config
-	Review  review.CommentFile
-	File    string
+	Command      []string
+	Config       Config
+	Review       review.CommentFile
+	File         string
+	WorkTreeRoot string
 }
 
 func (w uiWatchView) CreateState() vui.State {
@@ -61,6 +62,7 @@ func (s *uiWatchViewState) Build(ctx vui.BuildContext) vui.Widget {
 
 func (s *uiWatchViewState) diffRoot(w uiWatchView) uiDiffView {
 	root := uiDiffRootWithReviewFileAndBindings(s.rows, w.Config.Wrap, w.Review.Comments, w.File, true, newBindings(w.Config.Keybindings)).(uiDiffView)
+	root.WorkTreeRoot = w.WorkTreeRoot
 	root.EmptyMessage = "No changes."
 	root.EmptyHint = fmt.Sprintf("Watching: %s", strings.Join(w.Command, " "))
 	root.InitialStatus = s.message
@@ -120,7 +122,7 @@ func runUIWatch(command []string) error {
 	if err != nil {
 		return err
 	}
-	root := uiWatchView{Command: command, Config: cfg, Review: commentFile, File: commentPath}
+	root := uiWatchView{Command: command, Config: cfg, Review: commentFile, File: commentPath, WorkTreeRoot: gitWorkTreeRoot()}
 	if cfg.Theme != "" {
 		if t, ok := ThemeByName(cfg.Theme); ok {
 			return vui.Run(root, vui.WithTheme(uiThemeFromBaseColors(t.Colors)))
