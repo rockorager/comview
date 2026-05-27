@@ -199,6 +199,19 @@ func statDetail(stat diff.Stat) string {
 
 func rowsStats(rows []diff.Row) statusStats {
 	var stats statusStats
+	foundSummary := false
+	for _, row := range rows {
+		if row.Kind != diff.RowDiffStatSummary {
+			continue
+		}
+		foundSummary = true
+		stats.Adds += row.Stat.Adds
+		stats.Deletes += row.Stat.Deletes
+	}
+	if foundSummary {
+		return stats
+	}
+
 	for _, row := range rows {
 		switch row.Kind {
 		case diff.RowAdd:

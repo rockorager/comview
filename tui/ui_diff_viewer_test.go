@@ -110,6 +110,31 @@ func TestUIDiffViewStatusBarShowsFileAndStats(t *testing.T) {
 	}
 }
 
+func TestRowsStatsPrefersDiffStatSummary(t *testing.T) {
+	rows := []diff.Row{
+		{Kind: diff.RowDiffStat, Stat: diff.Stat{Adds: 12, Deletes: 0}},
+		{Kind: diff.RowDiffStat, Stat: diff.Stat{Adds: 10, Deletes: 8}},
+		{Kind: diff.RowDiffStatSummary, Stat: diff.Stat{Adds: 100, Deletes: 80}},
+	}
+
+	if got, want := rowsStats(rows), (statusStats{Adds: 100, Deletes: 80}); got != want {
+		t.Fatalf("stats = %s, want %s", got, want)
+	}
+}
+
+func TestRowsStatsDoesNotDoubleCountStatSummaryAndPatchRows(t *testing.T) {
+	rows := []diff.Row{
+		{Kind: diff.RowDiffStat, Stat: diff.Stat{Adds: 1, Deletes: 1}},
+		{Kind: diff.RowDiffStatSummary, Stat: diff.Stat{Adds: 1, Deletes: 1}},
+		{Kind: diff.RowAdd},
+		{Kind: diff.RowDelete},
+	}
+
+	if got, want := rowsStats(rows), (statusStats{Adds: 1, Deletes: 1}); got != want {
+		t.Fatalf("stats = %s, want %s", got, want)
+	}
+}
+
 func TestUIDiffViewFileFinderItemsIncludeDiffStatFiles(t *testing.T) {
 	rows, err := rowsForInput(` README.md        |  1 +
  tui/app.go       | 12 ++++++------
