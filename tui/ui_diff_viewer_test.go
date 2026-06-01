@@ -3212,7 +3212,8 @@ func TestUIDiffViewOpensCommentEditor(t *testing.T) {
 	if got := uiDiffPainterText(p, 1); !strings.Contains(got, "▄") {
 		t.Fatalf("editor row = %q, want top half-block padding", got)
 	}
-	if cursor, ok := p.Cursor(); !ok || cursor.Col != 2 || cursor.Row != 2 || cursor.Shape != vui.CursorBeam {
+	codeOffset := uiDiffCodeOffset(rows)
+	if cursor, ok := p.Cursor(); !ok || cursor.Col != codeOffset+2 || cursor.Row != 2 || cursor.Shape != vui.CursorBeam {
 		t.Fatalf("cursor = %+v, want editor row beam cursor after two left padding cells", cursor)
 	}
 	if got := p.Cell(0, 0).Background; got == uiDiffCursorRowBackground(uiDiffTestTheme()) {
@@ -3220,6 +3221,57 @@ func TestUIDiffViewOpensCommentEditor(t *testing.T) {
 	}
 	if got := uiDiffPainterText(p, 5); !strings.HasPrefix(got, " INSERT ") {
 		t.Fatalf("status bar = %q, want INSERT", got)
+	}
+}
+
+func TestUIDiffViewCommentEditorGrowsVertically(t *testing.T) {
+	rows := []diff.Row{{Kind: diff.RowAdd, Gutter: "1 1 + ", Code: "new", Review: review.Anchor{Path: "main.go", Line: 12, Side: review.SideRight}}}
+	app := newUIDiffTestAppWithBaseDraftsAndStatus(rows, DefaultBaseColors(), false, nil, true)
+	size := vui.Size{Width: 80, Height: 10}
+	app.Pump(size)
+	app.Pump(size)
+
+	app.Send(vaxis.Key{Text: "i", Keycode: 'i'})
+	app.Pump(size)
+	app.Send(vaxis.Key{Text: "one\ntwo\nthree"})
+	app.Pump(size)
+	p := vui.NewPainter(size)
+	app.Paint(p)
+	if got := uiDiffPainterText(p, 2); !strings.Contains(got, "one") {
+		t.Fatalf("first editor line = %q, want one", got)
+	}
+	if got := uiDiffPainterText(p, 3); !strings.Contains(got, "two") {
+		t.Fatalf("second editor line = %q, want two", got)
+	}
+	if got := uiDiffPainterText(p, 4); !strings.Contains(got, "three") {
+		t.Fatalf("third editor line = %q, want three", got)
+	}
+	if got := uiDiffPainterText(p, 5); !strings.Contains(got, "▀") {
+		t.Fatalf("editor bottom row = %q, want box to grow instead of scrolling", got)
+	}
+}
+
+func TestUIDiffViewOpeningCommentEditorScrollsIntoView(t *testing.T) {
+	rows := make([]diff.Row, 8)
+	for i := range rows {
+		rows[i] = diff.Row{Kind: diff.RowAdd, Gutter: "1 1 + ", Code: fmt.Sprintf("line %d", i), Review: review.Anchor{Path: "main.go", Line: i + 1, Side: review.SideRight}}
+	}
+	app := newUIDiffTestAppWithBaseDraftsAndStatus(rows, DefaultBaseColors(), false, nil, true)
+	size := vui.Size{Width: 80, Height: 6}
+	app.Pump(size)
+	app.Pump(size)
+	for range 4 {
+		app.Send(vaxis.Key{Text: "j", Keycode: 'j'})
+	}
+	app.Pump(size)
+
+	app.Send(vaxis.Key{Text: "i", Keycode: 'i'})
+	app.Pump(size)
+	app.Pump(size)
+	p := vui.NewPainter(size)
+	app.Paint(p)
+	if uiDiffPainterRowContaining(p, "▄") == -1 || uiDiffPainterRowContaining(p, "▀") == -1 {
+		t.Fatal("opening comment editor did not scroll the text field into view")
 	}
 }
 
@@ -3320,7 +3372,8 @@ func TestUIDiffViewCursorUpIntoCommentStartsAtLastLine(t *testing.T) {
 	if secondRow == -1 {
 		t.Fatal("second comment line was not rendered")
 	}
-	if cell := p.Cell(2, secondRow); cell.Background != uiDiffCursorBackground(uiDiffTestTheme()) {
+	codeOffset := uiDiffCodeOffset(rows)
+	if cell := p.Cell(codeOffset+2, secondRow); cell.Background != uiDiffCursorBackground(uiDiffTestTheme()) {
 		t.Fatalf("cursor after moving up into comment = %v, want last comment line cursor", cell.Background)
 	}
 
@@ -3332,7 +3385,7 @@ func TestUIDiffViewCursorUpIntoCommentStartsAtLastLine(t *testing.T) {
 	if firstRow == -1 {
 		t.Fatal("first comment line was not rendered")
 	}
-	if cell := p.Cell(2, firstRow); cell.Background != uiDiffCursorBackground(uiDiffTestTheme()) {
+	if cell := p.Cell(codeOffset+2, firstRow); cell.Background != uiDiffCursorBackground(uiDiffTestTheme()) {
 		t.Fatalf("cursor after moving within comment = %v, want first comment line cursor", cell.Background)
 	}
 }
@@ -3426,7 +3479,7 @@ func TestUIDiffViewCommentEditorNormalModeShowsCursorOnEmptyLine(t *testing.T) {
 	app.Pump(vui.Size{Width: 40, Height: 8})
 	p := vui.NewPainter(vui.Size{Width: 40, Height: 8})
 	app.Paint(p)
-	if cell := p.Cell(2, 3); cell.Background != uiDiffCursorBackground(uiDiffTestTheme()) {
+	if cell := p.Cell(uiDiffCodeOffset(rows)+2, 3); cell.Background != uiDiffCursorBackground(uiDiffTestTheme()) {
 		t.Fatalf("empty line cursor background = %v, want cursor background", cell.Background)
 	}
 }
@@ -3498,7 +3551,7 @@ func TestUIDiffViewCommentEditorCanCursorInAndOut(t *testing.T) {
 	if got := p.Cell(39, 0).Background; got == uiDiffCursorRowBackground(uiDiffTestTheme()) {
 		t.Fatal("diff row stayed highlighted after cursoring into comment box")
 	}
-	if got := p.Cell(0, 2).Background; got != uiDiffTestTheme().SurfaceHovered {
+	if got := p.Cell(uiDiffCodeOffset(rows), 2).Background; got != uiDiffTestTheme().SurfaceHovered {
 		t.Fatalf("focused comment body background = %v, want hovered surface", got)
 	}
 
@@ -3563,11 +3616,12 @@ func TestUIDiffViewCommentEditorEscapeKeepsEditorOpen(t *testing.T) {
 	if got := uiDiffPainterText(p, 2); !strings.Contains(got, "draft") {
 		t.Fatalf("editor body = %q, want draft", got)
 	}
-	if got := p.Cell(0, 2).Background; got != uiDiffTestTheme().Surface {
-		t.Fatalf("editor body left edge background = %v, want full-width comment surface", got)
+	codeOffset := uiDiffCodeOffset(rows)
+	if got := p.Cell(0, 2).Background; got == uiDiffTestTheme().Surface {
+		t.Fatalf("editor body left edge background = %v, want gutter space before comment surface", got)
 	}
-	if got := p.Cell(1, 2).Background; got != uiDiffTestTheme().Surface {
-		t.Fatalf("editor body second padding background = %v, want full-width comment surface", got)
+	if got := p.Cell(codeOffset, 2).Background; got != uiDiffTestTheme().Surface {
+		t.Fatalf("editor body code edge background = %v, want comment surface", got)
 	}
 }
 
