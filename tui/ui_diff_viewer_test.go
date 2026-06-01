@@ -2172,7 +2172,7 @@ func TestUIDiffViewDDDeletesNoteAtCursor(t *testing.T) {
 	}
 }
 
-func TestUIDiffViewXDeletesFocusedNote(t *testing.T) {
+func TestUIDiffViewCommentEditorXDeletesCharacter(t *testing.T) {
 	rows := []diff.Row{{Kind: diff.RowAdd, Gutter: "1 1 + ", Code: "line", Review: review.Anchor{Path: "main.go", Line: 12, Side: review.SideRight}}}
 	drafts := []review.CommentDraft{{Path: "main.go", Line: 12, Side: review.SideRight, Body: "comment"}}
 	app := newUIDiffTestAppWithBaseDraftsAndStatus(rows, DefaultBaseColors(), false, drafts, true)
@@ -2186,19 +2186,16 @@ func TestUIDiffViewXDeletesFocusedNote(t *testing.T) {
 	app.Pump(size)
 	p := vui.NewPainter(size)
 	app.Paint(p)
-	if uiDiffPainterRowContaining(p, "comment") != -1 {
-		t.Fatal("deleted focused note is still rendered")
-	}
-	if got := uiDiffPainterText(p, size.Height-1); !strings.Contains(got, "Note deleted.") {
-		t.Fatalf("status message = %q, want note deleted", got)
+	if uiDiffPainterRowContaining(p, "omment") == -1 {
+		t.Fatal("x did not delete the focused comment character")
 	}
 }
 
-func TestUIDiffViewDDDeletesFocusedNote(t *testing.T) {
+func TestUIDiffViewCommentEditorDDDeletesLine(t *testing.T) {
 	rows := []diff.Row{{Kind: diff.RowAdd, Gutter: "1 1 + ", Code: "line", Review: review.Anchor{Path: "main.go", Line: 12, Side: review.SideRight}}}
-	drafts := []review.CommentDraft{{Path: "main.go", Line: 12, Side: review.SideRight, Body: "comment"}}
+	drafts := []review.CommentDraft{{Path: "main.go", Line: 12, Side: review.SideRight, Body: "one\ntwo"}}
 	app := newUIDiffTestAppWithBaseDraftsAndStatus(rows, DefaultBaseColors(), false, drafts, true)
-	size := vui.Size{Width: 60, Height: 6}
+	size := vui.Size{Width: 60, Height: 8}
 	app.Pump(size)
 	app.Pump(size)
 
@@ -2208,15 +2205,123 @@ func TestUIDiffViewDDDeletesFocusedNote(t *testing.T) {
 	app.Pump(size)
 	p := vui.NewPainter(size)
 	app.Paint(p)
-	if uiDiffPainterRowContaining(p, "comment") == -1 {
-		t.Fatal("first d deleted focused note")
+	if uiDiffPainterRowContaining(p, "one") == -1 {
+		t.Fatal("first d deleted comment line")
 	}
 	app.Send(vaxis.Key{Text: "d", Keycode: 'd'})
 	app.Pump(size)
 	p = vui.NewPainter(size)
 	app.Paint(p)
-	if uiDiffPainterRowContaining(p, "comment") != -1 {
-		t.Fatal("dd did not delete focused note")
+	if uiDiffPainterRowContaining(p, "one") != -1 || uiDiffPainterRowContaining(p, "two") == -1 {
+		t.Fatal("dd did not delete only the focused comment line")
+	}
+}
+
+func TestUIDiffViewCommentEditorDDeletesForward(t *testing.T) {
+	rows := []diff.Row{{Kind: diff.RowAdd, Gutter: "1 1 + ", Code: "line", Review: review.Anchor{Path: "main.go", Line: 12, Side: review.SideRight}}}
+	drafts := []review.CommentDraft{{Path: "main.go", Line: 12, Side: review.SideRight, Body: "comment"}}
+	app := newUIDiffTestAppWithBaseDraftsAndStatus(rows, DefaultBaseColors(), false, drafts, true)
+	size := vui.Size{Width: 60, Height: 6}
+	app.Pump(size)
+	app.Pump(size)
+
+	app.Send(vaxis.Key{Text: "j", Keycode: 'j'})
+	app.Pump(size)
+	app.Send(vaxis.Key{Text: "l", Keycode: 'l'})
+	app.Send(vaxis.Key{Text: "l", Keycode: 'l'})
+	app.Send(vaxis.Key{Text: "D", Keycode: 'D'})
+	app.Pump(size)
+	p := vui.NewPainter(size)
+	app.Paint(p)
+	if uiDiffPainterRowContaining(p, "co") == -1 || uiDiffPainterRowContaining(p, "comment") != -1 {
+		t.Fatal("D did not delete from cursor to end of line")
+	}
+}
+
+func TestUIDiffViewCommentEditorVisualDDeletesSelection(t *testing.T) {
+	rows := []diff.Row{{Kind: diff.RowAdd, Gutter: "1 1 + ", Code: "line", Review: review.Anchor{Path: "main.go", Line: 12, Side: review.SideRight}}}
+	drafts := []review.CommentDraft{{Path: "main.go", Line: 12, Side: review.SideRight, Body: "comment"}}
+	app := newUIDiffTestAppWithBaseDraftsAndStatus(rows, DefaultBaseColors(), false, drafts, true)
+	size := vui.Size{Width: 60, Height: 6}
+	app.Pump(size)
+	app.Pump(size)
+
+	app.Send(vaxis.Key{Text: "j", Keycode: 'j'})
+	app.Pump(size)
+	app.Send(vaxis.Key{Text: "v", Keycode: 'v'})
+	app.Send(vaxis.Key{Text: "l", Keycode: 'l'})
+	app.Send(vaxis.Key{Text: "l", Keycode: 'l'})
+	app.Send(vaxis.Key{Text: "d", Keycode: 'd'})
+	app.Pump(size)
+	p := vui.NewPainter(size)
+	app.Paint(p)
+	if uiDiffPainterRowContaining(p, "ment") == -1 || uiDiffPainterRowContaining(p, "comment") != -1 {
+		t.Fatal("visual d did not delete the selected comment text")
+	}
+}
+
+func TestUIDiffViewCommentEditorVisualLineDDeletesSelection(t *testing.T) {
+	rows := []diff.Row{{Kind: diff.RowAdd, Gutter: "1 1 + ", Code: "line", Review: review.Anchor{Path: "main.go", Line: 12, Side: review.SideRight}}}
+	drafts := []review.CommentDraft{{Path: "main.go", Line: 12, Side: review.SideRight, Body: "one\ntwo\nthree"}}
+	app := newUIDiffTestAppWithBaseDraftsAndStatus(rows, DefaultBaseColors(), false, drafts, true)
+	size := vui.Size{Width: 60, Height: 9}
+	app.Pump(size)
+	app.Pump(size)
+
+	app.Send(vaxis.Key{Text: "j", Keycode: 'j'})
+	app.Pump(size)
+	app.Send(vaxis.Key{Text: "V", Keycode: 'V'})
+	app.Send(vaxis.Key{Text: "j", Keycode: 'j'})
+	app.Send(vaxis.Key{Text: "d", Keycode: 'd'})
+	app.Pump(size)
+	p := vui.NewPainter(size)
+	app.Paint(p)
+	if uiDiffPainterRowContaining(p, "one") != -1 || uiDiffPainterRowContaining(p, "two") != -1 || uiDiffPainterRowContaining(p, "three") == -1 {
+		t.Fatal("visual line d did not delete selected comment lines")
+	}
+}
+
+func TestUIDiffViewCommentEditorCChangesSelection(t *testing.T) {
+	rows := []diff.Row{{Kind: diff.RowAdd, Gutter: "1 1 + ", Code: "line", Review: review.Anchor{Path: "main.go", Line: 12, Side: review.SideRight}}}
+	drafts := []review.CommentDraft{{Path: "main.go", Line: 12, Side: review.SideRight, Body: "comment"}}
+	app := newUIDiffTestAppWithBaseDraftsAndStatus(rows, DefaultBaseColors(), false, drafts, true)
+	size := vui.Size{Width: 60, Height: 6}
+	app.Pump(size)
+	app.Pump(size)
+
+	app.Send(vaxis.Key{Text: "j", Keycode: 'j'})
+	app.Pump(size)
+	app.Send(vaxis.Key{Text: "v", Keycode: 'v'})
+	app.Send(vaxis.Key{Text: "l", Keycode: 'l'})
+	app.Send(vaxis.Key{Text: "c", Keycode: 'c'})
+	app.Pump(size)
+	app.Send(vaxis.Key{Text: "hi"})
+	app.Pump(size)
+	p := vui.NewPainter(size)
+	app.Paint(p)
+	if uiDiffPainterRowContaining(p, "himment") == -1 {
+		t.Fatal("c did not change selected comment text and enter insert mode")
+	}
+}
+
+func TestUIDiffViewCommentEditorEscapeClosesEmptyUnfocusedEditor(t *testing.T) {
+	rows := []diff.Row{{Kind: diff.RowAdd, Gutter: "1 1 + ", Code: "line", Review: review.Anchor{Path: "main.go", Line: 12, Side: review.SideRight}}}
+	app := newUIDiffTestAppWithBaseDraftsAndStatus(rows, DefaultBaseColors(), false, nil, true)
+	size := vui.Size{Width: 60, Height: 6}
+	app.Pump(size)
+	app.Pump(size)
+
+	app.Send(vaxis.Key{Text: "i", Keycode: 'i'})
+	app.Pump(size)
+	app.Send(vaxis.Key{Text: "x"})
+	app.Send(vaxis.Key{Keycode: vaxis.KeyEsc})
+	app.Send(vaxis.Key{Text: "x", Keycode: 'x'})
+	app.Send(vaxis.Key{Keycode: vaxis.KeyEsc})
+	app.Pump(size)
+	p := vui.NewPainter(size)
+	app.Paint(p)
+	if uiDiffPainterRowContaining(p, "Add comment") != -1 || uiDiffPainterRowContaining(p, "▄") != -1 {
+		t.Fatal("empty comment editor stayed open after escape")
 	}
 }
 
