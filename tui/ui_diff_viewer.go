@@ -4453,6 +4453,7 @@ func (s *uiDiffViewState) revealCommentEditor(rows []diff.Row) {
 				s.scroll.ScrollToOffset(offset + extent - metrics.ViewportHeight)
 				return
 			}
+			return
 		}
 	}
 	s.list.ScrollToIndex(row, vui.ScrollAlignEnd)

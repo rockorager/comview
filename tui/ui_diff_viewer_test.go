@@ -3380,6 +3380,45 @@ func TestUIDiffViewOpeningCommentEditorScrollsIntoView(t *testing.T) {
 	}
 }
 
+func TestUIDiffViewOpeningCommentEditorForVisibleLineSelectionDoesNotScroll(t *testing.T) {
+	rows := make([]diff.Row, 50)
+	for i := range rows {
+		rows[i] = diff.Row{Kind: diff.RowAdd, Gutter: "1 1 + ", Code: fmt.Sprintf("line %d", i), Review: review.Anchor{Path: "main.go", Line: i + 1, Side: review.SideRight}}
+	}
+	app := newUIDiffTestAppWithBaseDraftsAndStatus(rows, DefaultBaseColors(), false, nil, true)
+	size := vui.Size{Width: 80, Height: 12}
+	app.Pump(size)
+	app.Pump(size)
+
+	for range 20 {
+		app.Send(vaxis.Key{Text: "j", Keycode: 'j'})
+		app.Pump(size)
+	}
+	for range 5 {
+		app.Send(vaxis.Key{Text: "k", Keycode: 'k'})
+		app.Pump(size)
+	}
+	p := vui.NewPainter(size)
+	app.Paint(p)
+	if got := uiDiffPainterText(p, 0); !strings.Contains(got, "line 10") {
+		t.Fatalf("top visible row before opening selected-line comment = %q, want scrolled viewport", got)
+	}
+
+	app.Send(vaxis.Key{Text: "V", Keycode: 'V'})
+	app.Send(vaxis.Key{Text: "j", Keycode: 'j'})
+	app.Send(vaxis.Key{Text: "i", Keycode: 'i'})
+	app.Pump(size)
+	app.Pump(size)
+	p = vui.NewPainter(size)
+	app.Paint(p)
+	if got := uiDiffPainterText(p, 0); !strings.Contains(got, "line 10") {
+		t.Fatalf("top visible row after opening selected-line comment = %q, want unchanged viewport", got)
+	}
+	if uiDiffPainterRowContaining(p, "▄") == -1 || uiDiffPainterRowContaining(p, "▀") == -1 {
+		t.Fatal("comment editor was not visible in unchanged viewport")
+	}
+}
+
 func TestUIDiffViewCommentEditorEscapeReturnsToNormal(t *testing.T) {
 	rows := []diff.Row{{Kind: diff.RowAdd, Gutter: "1 1 + ", Code: "new", Review: review.Anchor{Path: "main.go", Line: 12, Side: review.SideRight}}}
 	app := newUIDiffTestAppWithBaseDraftsAndStatus(rows, DefaultBaseColors(), false, nil, true)
