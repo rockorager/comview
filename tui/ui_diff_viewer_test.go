@@ -3356,6 +3356,134 @@ func TestUIDiffViewCommentEditorGrowsVertically(t *testing.T) {
 	}
 }
 
+func TestUIDiffViewCommentEditorGrowsVerticallyForWrappedText(t *testing.T) {
+	rows := make([]diff.Row, 8)
+	for i := range rows {
+		rows[i] = diff.Row{Kind: diff.RowAdd, Gutter: "1 1 + ", Code: fmt.Sprintf("line %d", i), Review: review.Anchor{Path: "main.go", Line: i + 1, Side: review.SideRight}}
+	}
+	app := newUIDiffTestAppWithBaseDraftsAndStatus(rows, DefaultBaseColors(), false, nil, true)
+	size := vui.Size{Width: 50, Height: 15}
+	app.Pump(size)
+	app.Pump(size)
+	for range 3 {
+		app.Send(vaxis.Key{Text: "j", Keycode: 'j'})
+	}
+	app.Pump(size)
+
+	app.Send(vaxis.Key{Text: "i", Keycode: 'i'})
+	app.Pump(size)
+	app.Send(vaxis.Key{Text: strings.Repeat("word ", 10)})
+	app.Pump(size)
+	app.Pump(size)
+	p := vui.NewPainter(size)
+	app.Paint(p)
+	visible := ""
+	firstBodyRow := ""
+	for row := 0; row < size.Height; row++ {
+		text := uiDiffPainterText(p, row)
+		visible += text
+		if firstBodyRow == "" && strings.Contains(text, "word") {
+			firstBodyRow = text
+		}
+	}
+	if !strings.Contains(firstBodyRow, "word word word") {
+		t.Fatalf("first visible comment body row = %q, want beginning of comment", firstBodyRow)
+	}
+	if got := strings.Count(visible, "w"); got != 10 {
+		t.Fatalf("visible wrapped word starts = %d, want all 10 typed words", got)
+	}
+	if !strings.Contains(visible, "▄") || !strings.Contains(visible, "▀") {
+		t.Fatal("comment editor chrome was not fully visible")
+	}
+}
+
+func TestUIDiffViewCommentEditorTypingSingleLineGrowsForSoftWrap(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		rows int
+	}{
+		{name: "two rows", text: strings.Repeat("a", 69), rows: 2},
+		{name: "three rows", text: strings.Repeat("a", 137), rows: 3},
+		{name: "four rows", text: strings.Repeat("a", 205), rows: 4},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rows := []diff.Row{{Kind: diff.RowAdd, Gutter: "1 1 + ", Code: "new", Review: review.Anchor{Path: "main.go", Line: 12, Side: review.SideRight}}}
+			app := newUIDiffTestAppWithBaseDraftsAndStatus(rows, DefaultBaseColors(), false, nil, true)
+			size := vui.Size{Width: 80, Height: 8}
+			app.Pump(size)
+			app.Pump(size)
+
+			app.Send(vaxis.Key{Text: "i", Keycode: 'i'})
+			app.Pump(size)
+			app.Send(vaxis.Key{Text: tt.text, Keycode: []rune(tt.text)[0]})
+			app.Pump(size)
+			app.Pump(size)
+
+			p := vui.NewPainter(size)
+			app.Paint(p)
+			bodyRows := uiDiffCommentEditorBodyTextRows(p, size)
+			if len(bodyRows) != tt.rows {
+				t.Fatalf("comment body rows = %d, want %d; rows=%q", len(bodyRows), tt.rows, bodyRows)
+			}
+			if !strings.Contains(bodyRows[0], "aaa") {
+				t.Fatalf("first visible comment body row = %q, want beginning of typed text", bodyRows[0])
+			}
+			visible := strings.Join(bodyRows, "")
+			if got := strings.Count(visible, "a"); got != len(tt.text) {
+				t.Fatalf("visible a count = %d, want %d", got, len(tt.text))
+			}
+			if uiDiffPainterRowContaining(p, "▄") == -1 || uiDiffPainterRowContaining(p, "▀") == -1 {
+				t.Fatal("comment editor chrome was not fully visible")
+			}
+		})
+	}
+}
+
+func TestUIDiffViewCommentEditorTypingOneRuneAtATimeKeepsTopVisibleWhenGrowing(t *testing.T) {
+	rows := []diff.Row{{Kind: diff.RowAdd, Gutter: "1 1 + ", Code: "new", Review: review.Anchor{Path: "main.go", Line: 12, Side: review.SideRight}}}
+	app := newUIDiffTestAppWithBaseDraftsAndStatus(rows, DefaultBaseColors(), false, nil, true)
+	size := vui.Size{Width: 80, Height: 8}
+	app.Pump(size)
+	app.Pump(size)
+
+	app.Send(vaxis.Key{Text: "i", Keycode: 'i'})
+	app.Pump(size)
+	text := "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore"
+	for _, r := range text {
+		app.Send(vaxis.Key{Text: string(r), Keycode: r})
+		app.Pump(size)
+	}
+	app.Pump(size)
+
+	p := vui.NewPainter(size)
+	app.Paint(p)
+	bodyRows := uiDiffCommentEditorBodyTextRows(p, size)
+	if len(bodyRows) < 2 {
+		t.Fatalf("comment body rows = %d, want wrapped text; rows=%q", len(bodyRows), bodyRows)
+	}
+	if !strings.Contains(bodyRows[0], "lorem") {
+		t.Fatalf("first visible comment body row = %q, want beginning of typed text", bodyRows[0])
+	}
+	visible := strings.Join(bodyRows, "")
+	if !strings.Contains(visible, "labore") {
+		t.Fatalf("visible comment body = %q, want end of typed text", visible)
+	}
+}
+
+func uiDiffCommentEditorBodyTextRows(p *vui.Painter, size vui.Size) []string {
+	var rows []string
+	for row := 0; row < size.Height; row++ {
+		text := uiDiffPainterText(p, row)
+		if strings.Contains(text, "▄") || strings.Contains(text, "▀") || !strings.HasPrefix(text, "        ") || !strings.ContainsAny(text, "abcdefghijklmnopqrstuvwxyz") {
+			continue
+		}
+		rows = append(rows, text)
+	}
+	return rows
+}
+
 func TestUIDiffViewOpeningCommentEditorScrollsIntoView(t *testing.T) {
 	rows := make([]diff.Row, 8)
 	for i := range rows {

@@ -10,8 +10,8 @@ github.com/hexops/gotextdiff v1.0.3 h1:gitA9+qJrrTCsiCl7+kh75nPqQt1cx4ZkudSTLoUq
 github.com/hexops/gotextdiff v1.0.3/go.mod h1:pSWU5MAI3yDq+fZBTazCSJysOMbxWL1BSow5/V2vxeg=
 github.com/rockorager/go-uucode v1.2.0 h1:xwUIndxE+z1PIrWALT7unu4L8x27qMsC/5X3aonJo6o=
 github.com/rockorager/go-uucode v1.2.0/go.mod h1:0BZXIGRvWIHt1ruBeViNGcuKyQ3+BRHQbgyXkqRCz38=
-go.rockorager.dev/vaxis v0.16.1-0.20260526190652-9b57ecb4fead h1:sfq2Tw2mBdlXjA+Td02LnoBW4bzSZG+DG4aH7XTVSYg=
-go.rockorager.dev/vaxis v0.16.1-0.20260526190652-9b57ecb4fead/go.mod h1:5VpvRiT7INHD7fpN3G/z6c7A/tGwcIMaSyHdUwphKbI=
+go.rockorager.dev/vaxis v0.16.1-0.20260602135057-9cea5411efce h1:ynz7WK/LLuYre7a9xXA3gKB2ESOejf+w0N+Hz3LkZc8=
+go.rockorager.dev/vaxis v0.16.1-0.20260602135057-9cea5411efce/go.mod h1:5VpvRiT7INHD7fpN3G/z6c7A/tGwcIMaSyHdUwphKbI=
 golang.org/x/sys v0.10.0 h1:SqMFp9UcQJZa+pmYuAKjd9xq1f0j5rLcDIk0mj4qAsA=
 golang.org/x/sys v0.10.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/term v0.10.0 h1:3R7pNqamzBraeqj/Tj8qt1aQ2HpmlC+Cx/qL/7hn4/c=

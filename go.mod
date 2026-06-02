@@ -5,7 +5,7 @@ go 1.26.1
 require (
 	github.com/alecthomas/chroma/v2 v2.24.1
 	github.com/rockorager/go-uucode v1.2.0
-	go.rockorager.dev/vaxis v0.16.1-0.20260526190652-9b57ecb4fead
+	go.rockorager.dev/vaxis v0.16.1-0.20260602135057-9cea5411efce
 )
 
 require (

@@ -3061,11 +3061,12 @@ func (s *uiDiffViewState) buildItem(rows []diff.Row, rowIndex int, theme vui.The
 	children := []vui.Widget{item}
 	showDrafts := true
 	commentIndent := uiDiffCodeOffsetForGutterWidths(metrics.OldGutterWidth, metrics.NewGutterWidth)
+	commentBodyWidth := s.commentEditorBodyWidth(commentIndent)
 	if s.commentEditorActive && s.commentEditorRow == rowIndex {
-		children = append(children, uiDiffIndentedComment(commentIndent, s.buildCommentEditor(rows, theme), theme))
+		children = append(children, uiDiffIndentedComment(commentIndent, s.buildCommentEditor(rows, theme, commentBodyWidth), theme))
 		showDrafts = false
 	} else if body := s.commentEditorBodies[rowIndex]; strings.TrimSpace(body) != "" {
-		children = append(children, uiDiffIndentedComment(commentIndent, uiDiffCommentEditorBox(body, nil, false, false, nil, 0, false, false, 0, theme), theme))
+		children = append(children, uiDiffIndentedComment(commentIndent, uiDiffCommentEditorBox(body, nil, false, false, nil, 0, false, false, 0, commentBodyWidth, theme), theme))
 		showDrafts = false
 	}
 	if showDrafts {
@@ -3201,16 +3202,17 @@ func (s *uiDiffViewState) buildSideBySideCommentRows(rows []diff.Row, rowIndex i
 	}
 	side := uiDiffCommentSideForRow(rows[rowIndex])
 	commentIndent := metrics.SideBySideGutterWidth() + 3
+	commentBodyWidth := s.commentEditorBodyWidth(commentIndent)
 	widgets := make([]vui.Widget, 0, 1)
 	addCommentWidget := func(widget vui.Widget) {
 		widgets = append(widgets, uiDiffSideBySideCommentRow(uiDiffIndentedComment(commentIndent, widget, theme), side, theme))
 	}
 	showDrafts := true
 	if s.commentEditorActive && s.commentEditorRow == rowIndex {
-		addCommentWidget(s.buildCommentEditor(rows, theme))
+		addCommentWidget(s.buildCommentEditor(rows, theme, commentBodyWidth))
 		showDrafts = false
 	} else if body := s.commentEditorBodies[rowIndex]; strings.TrimSpace(body) != "" {
-		addCommentWidget(uiDiffCommentEditorBox(body, nil, false, false, nil, 0, false, false, 0, theme))
+		addCommentWidget(uiDiffCommentEditorBox(body, nil, false, false, nil, 0, false, false, 0, commentBodyWidth, theme))
 		showDrafts = false
 	}
 	if showDrafts {
@@ -3251,7 +3253,7 @@ func uiDiffCommentSideForRow(row diff.Row) diffSide {
 	return sideForRow(row)
 }
 
-func (s *uiDiffViewState) buildCommentEditor(rows []diff.Row, theme vui.Theme) vui.Widget {
+func (s *uiDiffViewState) buildCommentEditor(rows []diff.Row, theme vui.Theme, bodyWidth int) vui.Widget {
 	cursor := s.commentEditorCursor
 	s.commentEditorCursor = nil
 	return uiDiffCommentEditorBox(s.commentEditorBody, cursor, s.commentEditorFocused, s.commentEditorInsert, func(_ vui.EventContext, value string) {
@@ -3263,29 +3265,32 @@ func (s *uiDiffViewState) buildCommentEditor(rows []diff.Row, theme vui.Theme) v
 		s.storeCommentEditorBody()
 		s.revealCommentEditor(rows)
 		s.SetState(func() {})
-	}, s.commentEditorNormalCursor, s.commentEditorSelection, s.commentEditorLinewise, s.commentEditorAnchor, theme)
+	}, s.commentEditorNormalCursor, s.commentEditorSelection, s.commentEditorLinewise, s.commentEditorAnchor, bodyWidth, theme)
 }
 
-func uiDiffCommentEditorBox(body string, cursorOffset *int, focused bool, insert bool, onChanged func(vui.EventContext, string), normalCursor int, selection bool, linewise bool, anchor int, theme vui.Theme) vui.Widget {
+func uiDiffCommentEditorBox(body string, cursorOffset *int, focused bool, insert bool, onChanged func(vui.EventContext, string), normalCursor int, selection bool, linewise bool, anchor int, bodyWidth int, theme vui.Theme) vui.Widget {
 	background := theme.Surface
 	if focused || insert {
 		background = theme.SurfaceHovered
+	}
+	if bodyWidth <= 0 {
+		bodyWidth = uiDiffCommentEditorDefaultBodyWidth
 	}
 	boxStyle := vaxis.Style{Foreground: theme.Foreground, Background: background}
 	if !insert {
 		if body == "" {
 			body = "Add comment…"
 		}
-		return uiDiffCommentBox(uiDiffCommentColumn(
+		return uiDiffCommentBoxForWidth(uiDiffCommentColumn(
 			uiDiffCommentHalfBlock("▄", background, theme),
 			vui.DecoratedBox(
 				vui.Decoration{Style: boxStyle},
 				vui.Padding(vui.Symmetric(2, 0), vui.RichText{Spans: commentEditorNormalSpans(body, normalCursor, focused, selection, linewise, anchor, boxStyle, theme), SoftWrap: true}),
 			),
 			uiDiffCommentHalfBlock("▀", background, theme),
-		))
+		), bodyWidth+4)
 	}
-	return uiDiffCommentBox(uiDiffCommentColumn(
+	return uiDiffCommentBoxForWidth(uiDiffCommentColumn(
 		uiDiffCommentHalfBlock("▄", background, theme),
 		vui.DecoratedBox(
 			vui.Decoration{Style: boxStyle},
@@ -3293,14 +3298,14 @@ func uiDiffCommentEditorBox(body string, cursorOffset *int, focused bool, insert
 				Value:        body,
 				CursorOffset: cursorOffset,
 				Placeholder:  "Add comment…",
-				MinHeight:    uiDiffCommentEditorBodyRows(body),
+				MinHeight:    1,
 				SoftWrap:     true,
 				Padding:      vui.Symmetric(2, 0),
 				OnChanged:    onChanged,
 			}},
 		),
 		uiDiffCommentHalfBlock("▀", background, theme),
-	))
+	), bodyWidth+4)
 }
 
 func commentEditorNormalSpans(body string, cursor int, focused bool, selection bool, linewise bool, anchor int, style vaxis.Style, theme vui.Theme) []vui.TextSpan {
@@ -3477,23 +3482,47 @@ func uiDiffReviewDraft(draft review.CommentDraft, theme vui.Theme, _ func(vui.Ev
 }
 
 func uiDiffCommentBox(child vui.Widget) vui.Widget {
-	return vui.ConstrainedBox{Constraints: vui.Constraints{MinWidth: 72, MaxWidth: 72}, Child: child}
+	return uiDiffCommentBoxForWidth(child, 72)
 }
+
+func uiDiffCommentBoxForWidth(child vui.Widget, width int) vui.Widget {
+	return vui.ConstrainedBox{Constraints: vui.Constraints{MaxWidth: minInt(72, maxInt(1, width))}, Child: child}
+}
+
+const uiDiffCommentEditorDefaultBodyWidth = 40
 
 func uiDiffCommentEditorRows(body string) int {
 	return uiDiffCommentEditorBodyRows(body) + 2
 }
 
 func uiDiffCommentEditorBodyRows(body string) int {
+	return uiDiffCommentEditorBodyRowsForWidth(body, uiDiffCommentEditorDefaultBodyWidth)
+}
+
+func uiDiffCommentEditorRowsForWidth(body string, width int) int {
+	return uiDiffCommentEditorBodyRowsForWidth(body, width) + 2
+}
+
+func uiDiffCommentEditorBodyRowsForWidth(body string, width int) int {
 	if body == "" {
 		return 1
 	}
+	width = maxInt(1, width)
 	rows := 0
 	for _, line := range strings.Split(body, "\n") {
-		width := textCellWidth(line)
-		rows += maxInt(1, (width+67)/68)
+		lineWidth := textCellWidth(line)
+		rows += maxInt(1, (lineWidth+width-1)/width)
 	}
 	return rows
+}
+
+func (s *uiDiffViewState) commentEditorBodyWidth(commentIndent int) int {
+	if !s.scroll.Attached() {
+		return uiDiffCommentEditorDefaultBodyWidth
+	}
+	viewportWidth := s.scroll.Metrics().ViewportWidth
+	editorWidth := minInt(72, maxInt(1, viewportWidth-commentIndent))
+	return maxInt(1, editorWidth-4)
 }
 
 func uiDiffIndentedComment(indent int, child vui.Widget, theme vui.Theme) vui.Widget {
@@ -4444,7 +4473,12 @@ func (s *uiDiffViewState) revealCommentEditor(rows []diff.Row) {
 	if s.list.Attached() && s.scroll.Attached() {
 		if offset, ok := s.list.OffsetForIndex(row); ok {
 			metrics := s.scroll.Metrics()
-			extent := 1 + uiDiffCommentEditorRows(s.commentEditorBody)
+			commentIndent := uiDiffCodeOffset(rows)
+			if s.sideBySide {
+				commentIndent = s.documentMetrics(rows).SideBySideGutterWidth() + 3
+			}
+			bodyWidth := s.commentEditorBodyWidth(commentIndent)
+			extent := 1 + uiDiffCommentEditorRowsForWidth(s.commentEditorBody, bodyWidth)
 			if offset < metrics.ScrollOffset {
 				s.scroll.ScrollToOffset(offset)
 				return
