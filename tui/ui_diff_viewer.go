@@ -44,16 +44,26 @@ func uiDiffRootWithReviewFileAndBindings(rows []diff.Row, wrap bool, drafts []re
 }
 
 func uiThemeFromBaseColors(base BaseColors) vui.Theme {
+	// vaxis palette generation expects the neutral endpoints in dark-to-light
+	// order, even when the selected theme has a light background.
+	mode := vui.DarkTheme
+	black := base.Background
+	white := base.Foreground
+	if relativeLuminance(base.Background) > relativeLuminance(base.Foreground) {
+		mode = vui.LightTheme
+		black = base.Foreground
+		white = base.Background
+	}
 	return vui.ThemeFromPalette(vui.PaletteFromBaseColors(vui.BaseColors{
-		Black:   base.Background,
+		Black:   black,
 		Red:     base.Red,
 		Green:   base.Green,
 		Yellow:  base.Yellow,
 		Blue:    base.Blue,
 		Magenta: base.Magenta,
 		Cyan:    base.Cyan,
-		White:   base.Foreground,
-	}), vui.DarkTheme)
+		White:   white,
+	}), mode)
 }
 
 func (w uiDiffView) CreateState() vui.State {
