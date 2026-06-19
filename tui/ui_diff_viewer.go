@@ -3137,6 +3137,9 @@ func (s *uiDiffViewState) buildSideBySideCell(rows []diff.Row, rowIndex int, sid
 	if textBackground != 0 {
 		codeSegments = uiDiffApplyBackground(codeSegments, textBackground)
 	}
+	if !selected && !yanked {
+		codeSegments = uiDiffApplyInlineSpans(codeSegments, row, theme)
+	}
 	if start, end, ok := s.charSelectionRange(rowIndex, row); ok {
 		codeSegments = uiDiffApplySegmentBackgroundRange(codeSegments, start, end, theme.Selection, tabWidthForFile(row.FileName))
 	}
@@ -3726,6 +3729,62 @@ func uiDiffLineBackground(theme vui.Theme, scale vui.ColorScale) vaxis.Color {
 	return scale.Tone950
 }
 
+// uiDiffInlineSpanBackground returns the emphasis background used to highlight
+// the word-level inline-diff spans within a changed add or delete row. The tone
+// is drawn from the add/delete accent scale and sits a few steps stronger than
+// the row's base background (uiDiffLineBackground for deletes, theme.Surface for
+// adds), echoing the legacy viewer where the inline emphasis blended further
+// toward the accent than the changed-line background did (commit 44432db).
+//
+// On a dark theme the add base is theme.Surface and Green.Tone900 already reads
+// as a clear emphasis, but the delete base is Red.Tone950, so Red.Tone900 would
+// be only a one-tone nudge. The delete case therefore steps to Red.Tone800,
+// giving a perceptual delta (OKLab dE ~0.16) symmetric with the add side while
+// keeping the code text legible. On a light theme both sides use Tone200 over a
+// Tone50 base.
+func uiDiffInlineSpanBackground(kind diff.RowKind, theme vui.Theme) vaxis.Color {
+	var scale vui.ColorScale
+	switch kind {
+	case diff.RowAdd:
+		scale = theme.Palette.Green
+	case diff.RowDelete:
+		scale = theme.Palette.Red
+	default:
+		return vaxis.Color(0)
+	}
+	if theme.Mode == vui.LightTheme {
+		return scale.Tone200
+	}
+	if kind == diff.RowDelete {
+		return scale.Tone800
+	}
+	return scale.Tone900
+}
+
+// uiDiffApplyInlineSpans paints uiDiffInlineSpanBackground over each inline-diff
+// span in a changed code row. InlineSpan.Start/End are byte offsets into
+// row.Code; they are converted to cell columns with textCellWidthWithTabWidth so
+// the emphasis lands correctly across tabs and wide/CJK graphemes.
+func uiDiffApplyInlineSpans(segments []vaxis.Segment, row diff.Row, theme vui.Theme) []vaxis.Segment {
+	if len(row.InlineSpans) == 0 {
+		return segments
+	}
+	background := uiDiffInlineSpanBackground(row.Kind, theme)
+	if background == vaxis.Color(0) {
+		return segments
+	}
+	tabWidth := tabWidthForFile(row.FileName)
+	for _, span := range row.InlineSpans {
+		if span.Start < 0 || span.End > len(row.Code) || span.Start >= span.End {
+			continue
+		}
+		startCol := textCellWidthWithTabWidth(row.Code[:span.Start], tabWidth)
+		endCol := textCellWidthWithTabWidth(row.Code[:span.End], tabWidth)
+		segments = uiDiffApplySegmentBackgroundRange(segments, startCol, endCol, background, tabWidth)
+	}
+	return segments
+}
+
 func uiDiffCursorBackground(theme vui.Theme) vaxis.Color {
 	return theme.Foreground
 }
@@ -3836,6 +3895,9 @@ func (s *uiDiffViewState) buildRow(row diff.Row, rowIndex int, active bool, sele
 	codeSegments = uiDiffToneCodeSegments(row.Kind, codeSegments, theme)
 	if textBackground != 0 {
 		codeSegments = uiDiffApplyBackground(codeSegments, textBackground)
+	}
+	if !selected && !yanked {
+		codeSegments = uiDiffApplyInlineSpans(codeSegments, row, theme)
 	}
 	if start, end, ok := s.charSelectionRange(rowIndex, row); ok {
 		codeSegments = uiDiffApplySegmentBackgroundRange(codeSegments, start, end, theme.Selection, tabWidthForFile(row.FileName))

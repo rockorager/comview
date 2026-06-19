@@ -75,6 +75,298 @@ func TestUIDiffViewRendersRowsAsSliverTable(t *testing.T) {
 	}
 }
 
+func TestUIDiffViewHighlightsInlineSpans(t *testing.T) {
+	theme := uiDiffTestTheme()
+	// A leading context row keeps the default cursor off the changed rows so they
+	// render with their plain add/delete backgrounds rather than the cursor row tone.
+	// Code offset is six cells: oldWidth(1) + 1 + newWidth(1) + 1 + marker(1) + 1.
+	// InlineSpan bytes 7..15 cover "oldValue"/"newValue" (all ASCII, so byte == cell),
+	// landing at screen columns 13..20 inclusive.
+	rows := []diff.Row{
+		{Kind: diff.RowContext, Gutter: "1 1   ", Code: "context"},
+		{Kind: diff.RowDelete, Gutter: "2     ", Marker: "-", Code: "foo := oldValue + 1", InlineSpans: []diff.InlineSpan{{Start: 7, End: 15, Kind: diff.InlineChange}}},
+		{Kind: diff.RowAdd, Gutter: "  2   ", Marker: "+", Code: "foo := newValue + 1", InlineSpans: []diff.InlineSpan{{Start: 7, End: 15, Kind: diff.InlineChange}}},
+	}
+	app := newUIDiffTestApp(rows, false)
+	size := vui.Size{Width: 40, Height: 3}
+	app.Pump(size)
+	app.Pump(size)
+
+	p := vui.NewPainter(size)
+	app.Paint(p)
+
+	deleteEmphasis := uiDiffInlineSpanBackground(diff.RowDelete, theme)
+	if deleteEmphasis == uiDiffLineBackground(theme, theme.Palette.Red) {
+		t.Fatalf("delete emphasis background %v must differ from delete row background", deleteEmphasis)
+	}
+	if got := p.Cell(15, 1).Background; got != deleteEmphasis {
+		t.Fatalf("delete in-span background = %v, want emphasis %v", got, deleteEmphasis)
+	}
+	if got := p.Cell(6, 1).Background; got != theme.Palette.Red.Tone950 {
+		t.Fatalf("delete out-of-span background = %v, want base delete %v", got, theme.Palette.Red.Tone950)
+	}
+
+	addEmphasis := uiDiffInlineSpanBackground(diff.RowAdd, theme)
+	if addEmphasis == theme.Surface {
+		t.Fatalf("add emphasis background %v must differ from add row background %v", addEmphasis, theme.Surface)
+	}
+	if got := p.Cell(15, 2).Background; got != addEmphasis {
+		t.Fatalf("add in-span background = %v, want emphasis %v", got, addEmphasis)
+	}
+	if got := p.Cell(6, 2).Background; got != theme.Surface {
+		t.Fatalf("add out-of-span background = %v, want base add surface %v", got, theme.Surface)
+	}
+}
+
+// uiDiffRowColumnOf returns the first screen column on the painter row whose
+// grapheme equals want. It lets the inline-span tests locate a changed-word cell
+// without hardcoding gutter widths, which differ between unified and side-by-side
+// layouts.
+func uiDiffRowColumnOf(p *vui.Painter, row int, want string) (int, bool) {
+	for col := 0; col < p.Size().Width; col++ {
+		if p.Cell(col, row).Grapheme == want {
+			return col, true
+		}
+	}
+	return 0, false
+}
+
+func TestUIDiffViewHighlightsInlineSpansSideBySide(t *testing.T) {
+	theme := uiDiffTestTheme()
+	// The fix touches buildSideBySideCell; render the same delete/add pair after
+	// toggling to side-by-side (send 's') and assert the inline emphasis lands on
+	// the changed word. A leading context row holds the cursor so the changed pair
+	// renders with its plain add/delete tones, not the active cursor-row tone. The
+	// delete/add pair is paired by similarity onto one visual row, delete on the
+	// left pane and add on the right.
+	rows := []diff.Row{
+		{Kind: diff.RowContext, Gutter: "1 1   ", Code: "context"},
+		{Kind: diff.RowDelete, Gutter: "2     - ", Marker: "-", Code: "foo := oldValue + 1", InlineSpans: []diff.InlineSpan{{Start: 7, End: 15, Kind: diff.InlineChange}}},
+		{Kind: diff.RowAdd, Gutter: "    2 + ", Marker: "+", Code: "foo := newValue + 1", InlineSpans: []diff.InlineSpan{{Start: 7, End: 15, Kind: diff.InlineChange}}},
+	}
+	app := newUIDiffTestApp(rows, false)
+	size := vui.Size{Width: 60, Height: 3}
+	app.Pump(size)
+	app.Pump(size)
+
+	app.Send(vaxis.Key{Text: "s", Keycode: 's'})
+	app.Pump(size)
+	p := vui.NewPainter(size)
+	app.Paint(p)
+
+	deleteEmphasis := uiDiffInlineSpanBackground(diff.RowDelete, theme)
+	addEmphasis := uiDiffInlineSpanBackground(diff.RowAdd, theme)
+
+	// The delete/add pair lands on visual row 1 (row 0 is the context row holding
+	// the cursor). Locate the changed word by grapheme: 'V' starts "oldValue"/
+	// "newValue", inside the span; the 'f' of "foo" sits before the span.
+	const pairRow = 1
+	deleteSpanCol, ok := uiDiffRowColumnOf(p, pairRow, "V")
+	if !ok {
+		t.Fatalf("side-by-side delete row = %q, want changed word", uiDiffPainterText(p, pairRow))
+	}
+	if got := p.Cell(deleteSpanCol, pairRow).Background; got != deleteEmphasis {
+		t.Fatalf("side-by-side delete in-span background = %v, want emphasis %v", got, deleteEmphasis)
+	}
+	// The 'f' of "foo" on the left pane is before the span -> base delete tone.
+	deleteOutCol, ok := uiDiffRowColumnOf(p, pairRow, "f")
+	if !ok {
+		t.Fatalf("side-by-side delete row = %q, want leading word", uiDiffPainterText(p, pairRow))
+	}
+	if got := p.Cell(deleteOutCol, pairRow).Background; got != theme.Palette.Red.Tone950 {
+		t.Fatalf("side-by-side delete out-of-span background = %v, want base delete %v", got, theme.Palette.Red.Tone950)
+	}
+
+	// The add pane sits to the right; search for the second 'V' (right of the first).
+	addSpanCol := -1
+	for col := deleteSpanCol + 1; col < p.Size().Width; col++ {
+		if p.Cell(col, pairRow).Grapheme == "V" {
+			addSpanCol = col
+			break
+		}
+	}
+	if addSpanCol < 0 {
+		t.Fatalf("side-by-side add row = %q, want changed word on right pane", uiDiffPainterText(p, pairRow))
+	}
+	if got := p.Cell(addSpanCol, pairRow).Background; got != addEmphasis {
+		t.Fatalf("side-by-side add in-span background = %v, want emphasis %v", got, addEmphasis)
+	}
+	// An out-of-span add cell ('f' of the right "foo") stays at the add base.
+	addOutCol := -1
+	for col := deleteOutCol + 1; col < p.Size().Width; col++ {
+		if p.Cell(col, pairRow).Grapheme == "f" {
+			addOutCol = col
+			break
+		}
+	}
+	if addOutCol < 0 {
+		t.Fatalf("side-by-side add row = %q, want leading word on right pane", uiDiffPainterText(p, pairRow))
+	}
+	if got := p.Cell(addOutCol, pairRow).Background; got == addEmphasis {
+		t.Fatalf("side-by-side add out-of-span background = %v, must not equal emphasis %v", got, addEmphasis)
+	}
+}
+
+func TestUIDiffViewInlineSpansHandleTabsAndWideRunes(t *testing.T) {
+	theme := uiDiffTestTheme()
+	// Pin the byte->cell conversion: a naive byte-index implementation would land
+	// the span on the wrong cell. Code "\t한aX" with tabWidth 4 (FileName f.txt):
+	// \t=byte0 (1 byte, expands to cols 0-3), 한=bytes1-3 (3 bytes, width 2,
+	// cols 4-5), a=byte4 (col 6), X=byte5 (col 7). InlineSpan{5,6} covers only 'X',
+	// so the 'X' cell gets add emphasis and the preceding 'a' cell stays base.
+	rows := []diff.Row{
+		{Kind: diff.RowAdd, Gutter: "  1 + ", Marker: "+", FileName: "f.txt", Code: "\t한aX", InlineSpans: []diff.InlineSpan{{Start: 5, End: 6, Kind: diff.InlineChange}}},
+	}
+	app := newUIDiffTestApp(rows, false)
+	size := vui.Size{Width: 40, Height: 1}
+	app.Pump(size)
+	app.Pump(size)
+
+	p := vui.NewPainter(size)
+	app.Paint(p)
+
+	addEmphasis := uiDiffInlineSpanBackground(diff.RowAdd, theme)
+
+	xCol, ok := uiDiffRowColumnOf(p, 0, "X")
+	if !ok {
+		t.Fatalf("tab/CJK row = %q, want trailing X", uiDiffPainterText(p, 0))
+	}
+	if got := p.Cell(xCol, 0).Background; got != addEmphasis {
+		t.Fatalf("tab/CJK in-span 'X' background = %v, want emphasis %v", got, addEmphasis)
+	}
+	aCol, ok := uiDiffRowColumnOf(p, 0, "a")
+	if !ok {
+		t.Fatalf("tab/CJK row = %q, want 'a' before span", uiDiffPainterText(p, 0))
+	}
+	if got := p.Cell(aCol, 0).Background; got == addEmphasis {
+		t.Fatalf("tab/CJK out-of-span 'a' background = %v, must not equal emphasis %v", got, addEmphasis)
+	}
+	// The wide '한' rendered before 'a' confirms tab expansion + width-2 handling.
+	// It occupies two cells, so the painter places the grapheme at aCol-2 and a
+	// blank continuation at aCol-1.
+	if got := p.Cell(aCol-2, 0).Grapheme; got != "한" {
+		t.Fatalf("cell two before 'a' = %q, want wide 한 (tab+wide expansion)", got)
+	}
+}
+
+func TestUIDiffViewInlineSpanBoundariesAreExact(t *testing.T) {
+	theme := uiDiffTestTheme()
+	// Off-by-one guard: span bytes 7..15 cover exactly "oldValue". The cell just
+	// before (':'/' ' at the 'e' of " := ") and just after (the space after the
+	// word) must be base, while the first and last span cells are emphasized.
+	rows := []diff.Row{
+		{Kind: diff.RowContext, Gutter: "1 1   ", Code: "context"},
+		{Kind: diff.RowDelete, Gutter: "2     ", Marker: "-", Code: "foo := oldValue + 1", InlineSpans: []diff.InlineSpan{{Start: 7, End: 15, Kind: diff.InlineChange}}},
+	}
+	app := newUIDiffTestApp(rows, false)
+	size := vui.Size{Width: 40, Height: 2}
+	app.Pump(size)
+	app.Pump(size)
+
+	p := vui.NewPainter(size)
+	app.Paint(p)
+
+	emphasis := uiDiffInlineSpanBackground(diff.RowDelete, theme)
+	base := theme.Palette.Red.Tone950
+	// All ASCII -> cell column == byte offset + code start. Locate code start by
+	// finding 'o' of "oldValue" (the first 'o' after "foo " is the span start; use
+	// the 'V' anchor instead to be unambiguous, then walk back to span start).
+	vCol, ok := uiDiffRowColumnOf(p, 1, "V")
+	if !ok {
+		t.Fatalf("boundary row = %q, want changed word", uiDiffPainterText(p, 1))
+	}
+	spanStart := vCol - 3 // 'o','l','d' precede 'V' within "oldValue"
+	spanEnd := vCol + 4   // 'a','l','u','e' follow 'V'; last span cell is 'e'
+	if got := p.Cell(spanStart, 1).Background; got != emphasis {
+		t.Fatalf("first span cell background = %v, want emphasis %v", got, emphasis)
+	}
+	if got := p.Cell(spanEnd, 1).Background; got != emphasis {
+		t.Fatalf("last span cell background = %v, want emphasis %v", got, emphasis)
+	}
+	if got := p.Cell(spanStart-1, 1).Background; got != base {
+		t.Fatalf("cell just before span = %v, want base %v", got, base)
+	}
+	if got := p.Cell(spanEnd+1, 1).Background; got != base {
+		t.Fatalf("cell just after span = %v, want base %v", got, base)
+	}
+}
+
+func TestUIDiffViewChangedRowWithoutSpansIsUniform(t *testing.T) {
+	theme := uiDiffTestTheme()
+	// A changed row carrying no InlineSpans must render a uniform base background;
+	// none of its code cells should pick up the emphasis tone.
+	rows := []diff.Row{
+		{Kind: diff.RowContext, Gutter: "1 1   ", Code: "context"},
+		{Kind: diff.RowDelete, Gutter: "2     ", Marker: "-", Code: "foo := oldValue + 1"},
+	}
+	app := newUIDiffTestApp(rows, false)
+	size := vui.Size{Width: 40, Height: 2}
+	app.Pump(size)
+	app.Pump(size)
+
+	p := vui.NewPainter(size)
+	app.Paint(p)
+
+	emphasis := uiDiffInlineSpanBackground(diff.RowDelete, theme)
+	base := theme.Palette.Red.Tone950
+	for col := 6; col < 6+len("foo := oldValue + 1"); col++ {
+		got := p.Cell(col, 1).Background
+		if got == emphasis {
+			t.Fatalf("no-span row col %d background = emphasis %v, want uniform base", col, emphasis)
+		}
+		if got != base {
+			t.Fatalf("no-span row col %d background = %v, want base %v", col, got, base)
+		}
+	}
+}
+
+func TestUIDiffViewHighlightsMultipleInlineSpans(t *testing.T) {
+	theme := uiDiffTestTheme()
+	// Two disjoint spans on one row: bytes 0..3 ("aaa") and bytes 8..11 ("ccc"),
+	// with "bbb" (bytes 4..7, including the leading space) in the gap. Both windows
+	// are emphasized; the gap is base.
+	rows := []diff.Row{
+		{Kind: diff.RowContext, Gutter: "1 1   ", Code: "context"},
+		{Kind: diff.RowAdd, Gutter: "  2   ", Marker: "+", Code: "aaa bbb ccc", InlineSpans: []diff.InlineSpan{
+			{Start: 0, End: 3, Kind: diff.InlineChange},
+			{Start: 8, End: 11, Kind: diff.InlineChange},
+		}},
+	}
+	app := newUIDiffTestApp(rows, false)
+	size := vui.Size{Width: 40, Height: 2}
+	app.Pump(size)
+	app.Pump(size)
+
+	p := vui.NewPainter(size)
+	app.Paint(p)
+
+	emphasis := uiDiffInlineSpanBackground(diff.RowAdd, theme)
+	base := theme.Surface
+
+	codeStart, ok := uiDiffRowColumnOf(p, 1, "a")
+	if !ok {
+		t.Fatalf("multi-span row = %q, want first word", uiDiffPainterText(p, 1))
+	}
+	// First span "aaa" at codeStart..codeStart+2.
+	for col := codeStart; col < codeStart+3; col++ {
+		if got := p.Cell(col, 1).Background; got != emphasis {
+			t.Fatalf("first-span col %d background = %v, want emphasis %v", col, got, emphasis)
+		}
+	}
+	// Gap " bbb " (cols codeStart+3 .. codeStart+7) is base.
+	for col := codeStart + 3; col < codeStart+8; col++ {
+		if got := p.Cell(col, 1).Background; got != base {
+			t.Fatalf("gap col %d background = %v, want base %v", col, got, base)
+		}
+	}
+	// Second span "ccc" at codeStart+8 .. codeStart+10.
+	for col := codeStart + 8; col < codeStart+11; col++ {
+		if got := p.Cell(col, 1).Background; got != emphasis {
+			t.Fatalf("second-span col %d background = %v, want emphasis %v", col, got, emphasis)
+		}
+	}
+}
+
 func TestUIDiffViewStatusBar(t *testing.T) {
 	app := newUIDiffTestAppWithBaseDraftsAndStatus([]diff.Row{{Kind: diff.RowContext, Text: "line"}}, DefaultBaseColors(), false, nil, true)
 	app.Pump(vui.Size{Width: 20, Height: 2})
