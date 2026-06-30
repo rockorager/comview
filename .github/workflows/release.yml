@@ -1,0 +1,64 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install mise
+        uses: jdx/mise-action@v4
+        with:
+          install: false
+
+      - name: Install tools
+        run: mise install
+
+      - name: Build release artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="${GITHUB_REF_NAME#v}"
+          targets=(
+            "linux/amd64"
+            "linux/arm64"
+            "darwin/amd64"
+            "darwin/arm64"
+          )
+
+          mkdir -p dist/build
+
+          for target in "${targets[@]}"; do
+            goos="${target%/*}"
+            goarch="${target#*/}"
+            artifact="comview_${version}_${goos}_${goarch}"
+            build_dir="dist/build/${artifact}"
+            binary="comview"
+
+            mkdir -p "${build_dir}"
+            mise exec -- env GOFLAGS= CGO_ENABLED=0 GOOS="${goos}" GOARCH="${goarch}" \
+              go build -trimpath -o "${build_dir}/${binary}" ./cmd/comview
+            cp README.md LICENSE "${build_dir}/"
+            tar -C "${build_dir}" -czf "dist/${artifact}.tar.gz" "${binary}" README.md LICENSE
+          done
+
+          (cd dist && sha256sum comview_* > checksums.txt)
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/checksums.txt
+          generate_release_notes: true
