@@ -1573,6 +1573,25 @@ func TestUIDiffViewDerivesDiffColorsFromUITheme(t *testing.T) {
 	}
 }
 
+func TestUIThemeFromBaseColorsUsesLightModeForLightBackground(t *testing.T) {
+	themeConfig, ok := ThemeByName("Catppuccin Latte")
+	if !ok {
+		t.Fatal("Catppuccin Latte theme not found")
+	}
+	base := themeConfig.Colors
+	theme := uiThemeFromBaseColors(base)
+
+	if got := theme.Mode; got != vui.LightTheme {
+		t.Fatalf("theme mode = %v, want light", got)
+	}
+	if got := theme.Background; got != base.Background {
+		t.Fatalf("theme background = %v, want %v", got, base.Background)
+	}
+	if got := theme.Foreground; got != base.Foreground {
+		t.Fatalf("theme foreground = %v, want %v", got, base.Foreground)
+	}
+}
+
 func TestUIDiffViewHighlightsCodeWithChroma(t *testing.T) {
 	theme := uiDiffTestTheme()
 	rows := []diff.Row{{Kind: diff.RowAdd, Gutter: "    1 + ", Code: "package main", FileName: "main.go"}}
