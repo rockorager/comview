@@ -21,14 +21,17 @@ func TestBuildCommentIndexResolvesSingleLineComment(t *testing.T) {
 		t.Fatalf("entries = %d, want 1", len(entries))
 	}
 	entry := entries[0]
-	if entry.Row != 1 {
-		t.Fatalf("entry row = %d, want 1", entry.Row)
+	if entry.row != 1 {
+		t.Fatalf("entry row = %d, want 1", entry.row)
 	}
-	if entry.Path != "main.go" || entry.Line != 2 || entry.Side != review.SideRight {
-		t.Fatalf("entry location = %q line %d side %q, want main.go line 2 RIGHT", entry.Path, entry.Line, entry.Side)
+	if entry.draft.Path != "main.go" || entry.draft.Line != 2 || entry.draft.Side != review.SideRight {
+		t.Fatalf("entry draft location = %q line %d side %q, want main.go line 2 RIGHT", entry.draft.Path, entry.draft.Line, entry.draft.Side)
 	}
-	if entry.Preview != "looks good" {
-		t.Fatalf("preview = %q, want first trimmed line", entry.Preview)
+	if entry.anchor != rows[1].Review {
+		t.Fatalf("entry anchor = %+v, want row review anchor %+v", entry.anchor, rows[1].Review)
+	}
+	if got := commentPreview(entry.draft.Body); got != "looks good" {
+		t.Fatalf("preview = %q, want first trimmed line", got)
 	}
 	if !reflect.DeepEqual(idx.targetRows(), []int{1}) {
 		t.Fatalf("target rows = %#v, want []int{1}", idx.targetRows())
@@ -44,7 +47,7 @@ func TestBuildCommentIndexResolvesLeftSideComment(t *testing.T) {
 
 	idx := buildCommentIndex(rows, drafts)
 	entries := idx.entries
-	if len(entries) != 1 || entries[0].Row != 0 || entries[0].Side != review.SideLeft {
+	if len(entries) != 1 || entries[0].row != 0 || entries[0].draft.Side != review.SideLeft {
 		t.Fatalf("entries = %+v, want one left-side entry at row 0", entries)
 	}
 }
@@ -62,8 +65,8 @@ func TestBuildCommentIndexResolvesRangeToEndRowOnce(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("entries = %d, want 1", len(entries))
 	}
-	if entries[0].Row != 2 || entries[0].StartLine != 1 || entries[0].Line != 3 {
-		t.Fatalf("entry = %+v, want range targeted to end row 2 with line metadata", entries[0])
+	if entries[0].row != 2 || entries[0].draft.StartLine != 1 || entries[0].draft.Line != 3 {
+		t.Fatalf("entry = %+v, want range targeted to end row 2 with draft line metadata", entries[0])
 	}
 	if !reflect.DeepEqual(idx.targetRows(), []int{2}) {
 		t.Fatalf("target rows = %#v, want []int{2}", idx.targetRows())
@@ -78,8 +81,8 @@ func TestBuildCommentIndexFallsBackToContainedRangeRow(t *testing.T) {
 
 	idx := buildCommentIndex(rows, drafts)
 	entries := idx.entries
-	if len(entries) != 1 || entries[0].Row != 0 || entries[0].Line != 3 || entries[0].StartLine != 1 {
-		t.Fatalf("entries = %+v, want fallback to visible contained row while preserving line metadata", entries)
+	if len(entries) != 1 || entries[0].row != 0 || entries[0].draft.Line != 3 || entries[0].draft.StartLine != 1 {
+		t.Fatalf("entries = %+v, want fallback to visible contained row while preserving draft line metadata", entries)
 	}
 }
 
@@ -107,12 +110,12 @@ func TestBuildCommentIndexKeepsInputOrderForSameRow(t *testing.T) {
 	}
 
 	idx := buildCommentIndex(rows, drafts)
-	entries := idx.entriesForRow(0)
-	if len(entries) != 2 {
-		t.Fatalf("same-row entries = %d, want 2", len(entries))
+	gotDrafts := idx.draftsForRow(0)
+	if len(gotDrafts) != 2 {
+		t.Fatalf("same-row drafts = %d, want 2", len(gotDrafts))
 	}
-	if entries[0].Preview != "first" || entries[1].Preview != "second" {
-		t.Fatalf("same-row preview order = %q, %q; want first, second", entries[0].Preview, entries[1].Preview)
+	if commentPreview(gotDrafts[0].Body) != "first" || commentPreview(gotDrafts[1].Body) != "second" {
+		t.Fatalf("same-row preview order = %q, %q; want first, second", commentPreview(gotDrafts[0].Body), commentPreview(gotDrafts[1].Body))
 	}
 	if !reflect.DeepEqual(idx.targetRows(), []int{0}) {
 		t.Fatalf("target rows = %#v, want one deduped row", idx.targetRows())
