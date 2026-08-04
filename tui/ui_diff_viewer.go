@@ -162,6 +162,7 @@ func (s *uiDiffViewState) Build(ctx vui.BuildContext) vui.Widget {
 	highlightedRows := s.highlightedCodeRows(w.Rows, theme)
 	metrics := s.documentMetrics(w.Rows)
 	drafts := s.allReviewDrafts(w.ReviewDrafts)
+	commentIdx := buildCommentIndex(w.Rows, drafts)
 	sliver := vui.Widget(vui.SliverListBuilder{
 		Controller:          &s.list,
 		Count:               len(w.Rows),
@@ -169,7 +170,7 @@ func (s *uiDiffViewState) Build(ctx vui.BuildContext) vui.Widget {
 		EstimatedItemExtent: 1,
 		Overscan:            8,
 		Builder: func(ctx vui.BuildContext, row int) vui.Widget {
-			return s.buildItem(w.Rows, row, theme, highlightedRows, drafts, w.Wrap, metrics)
+			return s.buildItem(w.Rows, row, theme, highlightedRows, commentIdx, w.Wrap, metrics)
 		},
 	})
 	if s.sideBySide {
@@ -181,7 +182,7 @@ func (s *uiDiffViewState) Build(ctx vui.BuildContext) vui.Widget {
 			EstimatedItemExtent: 1,
 			Overscan:            8,
 			Builder: func(ctx vui.BuildContext, row int) vui.Widget {
-				return s.buildSideBySideItem(w.Rows, sideRows[row], theme, highlightedRows, drafts, w.Wrap, metrics)
+				return s.buildSideBySideItem(w.Rows, sideRows[row], theme, highlightedRows, commentIdx, w.Wrap, metrics)
 			},
 		}
 	}
@@ -1138,11 +1139,11 @@ func (s *uiDiffViewState) HandleEvent(ctx vui.EventContext, ev vui.Event) vui.Ev
 		return vui.EventHandled
 	case key.Matches('n') && s.pendingBracket == ']':
 		s.clearPendingKeys()
-		s.jumpNote(w.Rows, w.ReviewDrafts, 1)
+		s.jumpNote(w.Rows, s.allReviewDrafts(w.ReviewDrafts), 1)
 		return vui.EventHandled
 	case key.Matches('n') && s.pendingBracket == '[':
 		s.clearPendingKeys()
-		s.jumpNote(w.Rows, w.ReviewDrafts, -1)
+		s.jumpNote(w.Rows, s.allReviewDrafts(w.ReviewDrafts), -1)
 		return vui.EventHandled
 	case w.Binds.Matches(key, "search"):
 		s.clearPendingKeys()
@@ -3047,7 +3048,7 @@ func (s *uiDiffViewState) clearSearch() {
 	s.searchIndex = -1
 }
 
-func (s *uiDiffViewState) buildItem(rows []diff.Row, rowIndex int, theme vui.Theme, highlightedRows map[int][]vaxis.Segment, drafts []review.CommentDraft, wrap bool, metrics uiDiffDocumentMetrics) vui.Widget {
+func (s *uiDiffViewState) buildItem(rows []diff.Row, rowIndex int, theme vui.Theme, highlightedRows map[int][]vaxis.Segment, comments commentIndex, wrap bool, metrics uiDiffDocumentMetrics) vui.Widget {
 	row := rows[rowIndex]
 	active := rowIndex == s.cursor.Row && !s.commentEditorInsert && !s.commentEditorFocused
 	selected := s.lineSelected(rowIndex)
@@ -3070,7 +3071,7 @@ func (s *uiDiffViewState) buildItem(rows []diff.Row, rowIndex int, theme vui.The
 		showDrafts = false
 	}
 	if showDrafts {
-		for _, draft := range reviewDraftsForRow(row, drafts) {
+		for _, draft := range comments.DraftsForRow(rowIndex) {
 			children = append(children, uiDiffIndentedComment(commentIndent, uiDiffReviewDraft(draft, theme, func(vui.EventContext) {
 				s.focusCommentEditorRow(rows, rowIndex)
 				s.commentEditorInsert = true
@@ -3083,9 +3084,9 @@ func (s *uiDiffViewState) buildItem(rows []diff.Row, rowIndex int, theme vui.The
 	return vui.Column(children...)
 }
 
-func (s *uiDiffViewState) buildSideBySideItem(rows []diff.Row, sideRow sideBySideRow, theme vui.Theme, highlightedRows map[int][]vaxis.Segment, drafts []review.CommentDraft, wrap bool, metrics uiDiffDocumentMetrics) vui.Widget {
+func (s *uiDiffViewState) buildSideBySideItem(rows []diff.Row, sideRow sideBySideRow, theme vui.Theme, highlightedRows map[int][]vaxis.Segment, comments commentIndex, wrap bool, metrics uiDiffDocumentMetrics) vui.Widget {
 	if sideRow.Full >= 0 {
-		return s.buildItem(rows, sideRow.Full, theme, highlightedRows, drafts, wrap, metrics)
+		return s.buildItem(rows, sideRow.Full, theme, highlightedRows, comments, wrap, metrics)
 	}
 	separatorStyle := vaxis.Style{Foreground: theme.MutedForeground, Background: theme.Background}
 	row := vui.Row(
@@ -3095,7 +3096,7 @@ func (s *uiDiffViewState) buildSideBySideItem(rows []diff.Row, sideRow sideBySid
 	)
 	children := []vui.Widget{row}
 	for _, docRow := range sideBySideRowCommentDocRows(sideRow) {
-		children = append(children, s.buildSideBySideCommentRows(rows, docRow, drafts, theme, metrics)...)
+		children = append(children, s.buildSideBySideCommentRows(rows, docRow, comments, theme, metrics)...)
 	}
 	if len(children) == 1 {
 		return row
@@ -3199,7 +3200,7 @@ func uiDiffSplitSideBySideGutter(gutter string) (string, string) {
 	return gutter[:len(gutter)-3], gutter[len(gutter)-3:]
 }
 
-func (s *uiDiffViewState) buildSideBySideCommentRows(rows []diff.Row, rowIndex int, drafts []review.CommentDraft, theme vui.Theme, metrics uiDiffDocumentMetrics) []vui.Widget {
+func (s *uiDiffViewState) buildSideBySideCommentRows(rows []diff.Row, rowIndex int, comments commentIndex, theme vui.Theme, metrics uiDiffDocumentMetrics) []vui.Widget {
 	if rowIndex < 0 || rowIndex >= len(rows) {
 		return nil
 	}
@@ -3219,7 +3220,7 @@ func (s *uiDiffViewState) buildSideBySideCommentRows(rows []diff.Row, rowIndex i
 		showDrafts = false
 	}
 	if showDrafts {
-		for _, draft := range reviewDraftsForRow(rows[rowIndex], drafts) {
+		for _, draft := range comments.DraftsForRow(rowIndex) {
 			addCommentWidget(uiDiffReviewDraft(draft, theme, func(vui.EventContext) {
 				s.focusCommentEditorRow(rows, rowIndex)
 				s.commentEditorInsert = true
