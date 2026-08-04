@@ -2,7 +2,6 @@ package tui
 
 import (
 	"sort"
-	"strings"
 
 	"go.rockorager.dev/comview/diff"
 	"go.rockorager.dev/comview/review"
@@ -15,9 +14,8 @@ type commentIndex struct {
 
 // commentIndexEntry keeps the original draft plus its resolved visible target row.
 type commentIndexEntry struct {
-	draft  review.CommentDraft
-	row    int
-	anchor review.Anchor
+	draft review.CommentDraft
+	row   int
 }
 
 // buildCommentIndex indexes drafts that resolve against the current visible rows.
@@ -30,9 +28,8 @@ func buildCommentIndex(rows []diff.Row, drafts []review.CommentDraft) commentInd
 			continue
 		}
 		entries = append(entries, commentIndexEntry{
-			draft:  draft,
-			row:    row,
-			anchor: rows[row].Review,
+			draft: draft,
+			row:   row,
 		})
 	}
 	return commentIndex{entries: entries}
@@ -78,14 +75,4 @@ func (idx commentIndex) targetRows() []int {
 	}
 	sort.Ints(targets)
 	return targets
-}
-
-func commentPreview(body string) string {
-	for _, line := range strings.Split(body, "\n") {
-		line = strings.Join(strings.Fields(line), " ")
-		if line != "" {
-			return line
-		}
-	}
-	return ""
 }
