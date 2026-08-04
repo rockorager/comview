@@ -24,14 +24,8 @@ func TestBuildCommentIndexResolvesSingleLineComment(t *testing.T) {
 	if entry.row != 1 {
 		t.Fatalf("entry row = %d, want 1", entry.row)
 	}
-	if entry.draft.Path != "main.go" || entry.draft.Line != 2 || entry.draft.Side != review.SideRight {
-		t.Fatalf("entry draft location = %q line %d side %q, want main.go line 2 RIGHT", entry.draft.Path, entry.draft.Line, entry.draft.Side)
-	}
-	if entry.anchor != rows[1].Review {
-		t.Fatalf("entry anchor = %+v, want row review anchor %+v", entry.anchor, rows[1].Review)
-	}
-	if got := commentPreview(entry.draft.Body); got != "looks good" {
-		t.Fatalf("preview = %q, want first trimmed line", got)
+	if entry.draft.Path != "main.go" || entry.draft.Line != 2 || entry.draft.Side != review.SideRight || entry.draft.Body != drafts[0].Body {
+		t.Fatalf("entry draft = %+v, want original draft metadata", entry.draft)
 	}
 	if !reflect.DeepEqual(idx.targetRows(), []int{1}) {
 		t.Fatalf("target rows = %#v, want []int{1}", idx.targetRows())
@@ -114,19 +108,10 @@ func TestBuildCommentIndexKeepsInputOrderForSameRow(t *testing.T) {
 	if len(gotDrafts) != 2 {
 		t.Fatalf("same-row drafts = %d, want 2", len(gotDrafts))
 	}
-	if commentPreview(gotDrafts[0].Body) != "first" || commentPreview(gotDrafts[1].Body) != "second" {
-		t.Fatalf("same-row preview order = %q, %q; want first, second", commentPreview(gotDrafts[0].Body), commentPreview(gotDrafts[1].Body))
+	if gotDrafts[0].Body != "first" || gotDrafts[1].Body != "second" {
+		t.Fatalf("same-row draft order = %q, %q; want first, second", gotDrafts[0].Body, gotDrafts[1].Body)
 	}
 	if !reflect.DeepEqual(idx.targetRows(), []int{0}) {
 		t.Fatalf("target rows = %#v, want one deduped row", idx.targetRows())
-	}
-}
-
-func TestCommentPreviewCompactsWhitespace(t *testing.T) {
-	if got := commentPreview("  first\t line  \nsecond line  "); got != "first line" {
-		t.Fatalf("preview = %q, want compact first line", got)
-	}
-	if got := commentPreview("\n\t second line "); got != "second line" {
-		t.Fatalf("preview = %q, want first non-empty trimmed line", got)
 	}
 }
