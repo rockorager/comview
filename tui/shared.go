@@ -569,7 +569,7 @@ func reviewDraftContains(draft review.CommentDraft, anchor review.Anchor) bool {
 }
 
 func noteTargetRows(rows []diff.Row, drafts []review.CommentDraft) []int {
-	return buildCommentIndex(rows, drafts).TargetRows()
+	return buildCommentIndex(rows, drafts).targetRows()
 }
 
 func segmentsText(segments []vaxis.Segment) string {

@@ -66,14 +66,7 @@ func commentIndexTargetRow(rows []diff.Row, draft review.CommentDraft) (int, boo
 	return 0, false
 }
 
-// Entries returns a copy so callers cannot mutate the shared index.
-func (idx commentIndex) Entries() []commentIndexEntry {
-	entries := make([]commentIndexEntry, len(idx.entries))
-	copy(entries, idx.entries)
-	return entries
-}
-
-func (idx commentIndex) EntriesForRow(row int) []commentIndexEntry {
+func (idx commentIndex) entriesForRow(row int) []commentIndexEntry {
 	entries := make([]commentIndexEntry, 0, 1)
 	for _, entry := range idx.entries {
 		if entry.Row == row {
@@ -83,8 +76,8 @@ func (idx commentIndex) EntriesForRow(row int) []commentIndexEntry {
 	return entries
 }
 
-func (idx commentIndex) DraftsForRow(row int) []review.CommentDraft {
-	entries := idx.EntriesForRow(row)
+func (idx commentIndex) draftsForRow(row int) []review.CommentDraft {
+	entries := idx.entriesForRow(row)
 	if len(entries) == 0 {
 		return nil
 	}
@@ -95,7 +88,7 @@ func (idx commentIndex) DraftsForRow(row int) []review.CommentDraft {
 	return drafts
 }
 
-func (idx commentIndex) TargetRows() []int {
+func (idx commentIndex) targetRows() []int {
 	seen := make(map[int]bool, len(idx.entries))
 	targets := make([]int, 0, len(idx.entries))
 	for _, entry := range idx.entries {
