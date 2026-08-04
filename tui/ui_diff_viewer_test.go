@@ -558,6 +558,128 @@ func TestUIDiffViewFileFinderConsumesDiffKeys(t *testing.T) {
 	}
 }
 
+func TestUIDiffViewCommentFinderOpensWithIndexedComments(t *testing.T) {
+	rows := []diff.Row{
+		{Kind: diff.RowAdd, Gutter: "1 1   ", Code: "first", Review: review.Anchor{Path: "main.go", Line: 1, Side: review.SideRight}},
+		{Kind: diff.RowAdd, Gutter: "2 2   ", Code: "second", Review: review.Anchor{Path: "main.go", Line: 2, Side: review.SideRight}},
+	}
+	drafts := []review.CommentDraft{{Path: "main.go", Line: 2, Side: review.SideRight, Body: "  second body preview\nmore detail"}}
+	app := newUIDiffTestAppWithBaseDraftsAndStatus(rows, DefaultBaseColors(), false, drafts, true)
+	size := vui.Size{Width: 80, Height: 8}
+	app.Pump(size)
+	app.Pump(size)
+
+	app.Send(vaxis.Key{Text: " ", Keycode: vaxis.KeySpace})
+	app.Send(vaxis.Key{Text: "n", Keycode: 'n'})
+	app.Pump(size)
+
+	p := vui.NewPainter(size)
+	app.Paint(p)
+	if _, _, ok := uiDiffFindText(p, "Find comment…"); !ok {
+		t.Fatal("comment finder did not open")
+	}
+	if _, _, ok := uiDiffFindText(p, "main.go:2"); !ok {
+		t.Fatal("comment finder item omitted comment location")
+	}
+	if _, _, ok := uiDiffFindText(p, "second body preview"); !ok {
+		t.Fatal("comment finder item omitted body preview")
+	}
+}
+
+func TestUIDiffViewCommentFinderJumpsToSelectedComment(t *testing.T) {
+	rows := []diff.Row{
+		{Kind: diff.RowAdd, Gutter: "1 1   ", Code: "alpha", Review: review.Anchor{Path: "main.go", Line: 1, Side: review.SideRight}},
+		{Kind: diff.RowAdd, Gutter: "2 2   ", Code: "middle", Review: review.Anchor{Path: "main.go", Line: 2, Side: review.SideRight}},
+		{Kind: diff.RowAdd, Gutter: "3 3   ", Code: "beta", Review: review.Anchor{Path: "main.go", Line: 3, Side: review.SideRight}},
+	}
+	drafts := []review.CommentDraft{
+		{Path: "main.go", Line: 1, Side: review.SideRight, Body: "alpha note"},
+		{Path: "main.go", Line: 3, Side: review.SideRight, Body: "beta selected note"},
+	}
+	app := newUIDiffTestAppWithBaseDraftsAndStatus(rows, DefaultBaseColors(), false, drafts, true)
+	size := vui.Size{Width: 80, Height: 8}
+	app.Pump(size)
+	app.Pump(size)
+
+	app.Send(vaxis.Key{Text: " ", Keycode: vaxis.KeySpace})
+	app.Send(vaxis.Key{Text: "n", Keycode: 'n'})
+	app.Pump(size)
+	app.Send(vaxis.Key{Text: "beta"})
+	app.Pump(size)
+	app.Send(vaxis.Key{Keycode: vaxis.KeyEnter})
+	app.Pump(size)
+	app.Pump(size)
+
+	p := vui.NewPainter(size)
+	app.Paint(p)
+	col, row, ok := uiDiffFindText(p, "3 3   beta")
+	if !ok {
+		t.Fatal("selected comment target row is not visible")
+	}
+	if got := p.Cell(col, row).Background; got != uiDiffCursorRowBackground(uiDiffTestTheme()) {
+		t.Fatalf("selected comment target background = %v, want cursor row background", got)
+	}
+	if _, _, ok := uiDiffFindText(p, "Find comment…"); ok {
+		t.Fatal("comment finder stayed visible after selection")
+	}
+}
+
+func TestUIDiffViewCommentFinderDoesNotOpenWithoutIndexedComments(t *testing.T) {
+	rows := []diff.Row{
+		{Kind: diff.RowAdd, Gutter: "1 1   ", Code: "first", Review: review.Anchor{Path: "main.go", Line: 1, Side: review.SideRight}},
+	}
+	drafts := []review.CommentDraft{{Path: "main.go", Line: 99, Side: review.SideRight, Body: "unmatched"}}
+	app := newUIDiffTestAppWithBaseDraftsAndStatus(rows, DefaultBaseColors(), false, drafts, true)
+	size := vui.Size{Width: 60, Height: 6}
+	app.Pump(size)
+	app.Pump(size)
+
+	app.Send(vaxis.Key{Text: " ", Keycode: vaxis.KeySpace})
+	app.Send(vaxis.Key{Text: "n", Keycode: 'n'})
+	app.Pump(size)
+
+	p := vui.NewPainter(size)
+	app.Paint(p)
+	if _, _, ok := uiDiffFindText(p, "Find comment…"); ok {
+		t.Fatal("comment finder opened without indexed comments")
+	}
+	if got := uiDiffHighlightedScreenRow(p, uiDiffCursorRowBackground(uiDiffTestTheme())); got != 0 {
+		t.Fatalf("cursor row = %d, want unchanged row 0", got)
+	}
+}
+
+func TestUIDiffViewCommentFinderConsumesDiffKeys(t *testing.T) {
+	rows := []diff.Row{
+		{Kind: diff.RowAdd, Gutter: "1 1   ", Code: "first", Review: review.Anchor{Path: "main.go", Line: 1, Side: review.SideRight}},
+		{Kind: diff.RowAdd, Gutter: "2 2   ", Code: "second", Review: review.Anchor{Path: "main.go", Line: 2, Side: review.SideRight}},
+	}
+	drafts := []review.CommentDraft{{Path: "main.go", Line: 1, Side: review.SideRight, Body: "first note"}}
+	app := newUIDiffTestAppWithBaseDraftsAndStatus(rows, DefaultBaseColors(), false, drafts, true)
+	size := vui.Size{Width: 60, Height: 7}
+	app.Pump(size)
+	app.Pump(size)
+
+	app.Send(vaxis.Key{Text: " ", Keycode: vaxis.KeySpace})
+	app.Send(vaxis.Key{Text: "n", Keycode: 'n'})
+	app.Pump(size)
+	app.Send(vaxis.Key{Text: "j", Keycode: 'j'})
+	app.Send(vaxis.Key{Text: ":", Keycode: ':'})
+	app.Send(vaxis.Key{Text: "q"})
+	app.Send(vaxis.Key{Keycode: vaxis.KeyEnter})
+	app.Pump(size)
+	app.Send(vaxis.Key{Keycode: vaxis.KeyEsc})
+	app.Pump(size)
+
+	if app.ShouldQuit() {
+		t.Fatal("comment finder leaked :q to diff view")
+	}
+	p := vui.NewPainter(size)
+	app.Paint(p)
+	if got := uiDiffHighlightedScreenRow(p, uiDiffCursorRowBackground(uiDiffTestTheme())); got != 0 {
+		t.Fatalf("cursor row = %d, want unchanged row 0", got)
+	}
+}
+
 func TestUIDiffViewFileFinderStatsAreColorized(t *testing.T) {
 	theme := uiDiffTestTheme()
 	app := vui.NewApp(vui.Provider[vui.Theme]{Value: theme, Child: uiDiffFileStatWidget("+1 -1", theme)})

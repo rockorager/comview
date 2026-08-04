@@ -71,6 +71,7 @@ type uiDiffViewState struct {
 	pendingSpace              bool
 	pendingD                  bool
 	fileFinder                bool
+	commentFinder             bool
 	themeFinder               bool
 	themeName                 string
 	themeNameBeforePick       string
@@ -232,6 +233,9 @@ func (s *uiDiffViewState) Build(ctx vui.BuildContext) vui.Widget {
 	entries := []vui.OverlayEntry{}
 	if s.fileFinder {
 		entries = append(entries, vui.OverlayEntry{Modal: true, Child: s.buildFileFinder(w.Rows, theme)})
+	}
+	if s.commentFinder {
+		entries = append(entries, vui.OverlayEntry{Modal: true, Child: s.buildCommentFinder(w.Rows, commentIdx)})
 	}
 	if s.themeFinder {
 		entries = append(entries, vui.OverlayEntry{Modal: true, Child: s.buildThemeFinder()})
@@ -602,6 +606,69 @@ func uiDiffFileFinderItems(rows []diff.Row) []uiDiffFileItem {
 		}
 	}
 	return items
+}
+
+type uiDiffCommentItem struct {
+	Label   string
+	Preview string
+	Row     int
+}
+
+func (s *uiDiffViewState) buildCommentFinder(rows []diff.Row, idx commentIndex) vui.Widget {
+	return vui.FuzzySelect[uiDiffCommentItem]{
+		Items:          uiDiffCommentFinderItems(idx),
+		Item:           uiDiffCommentSelectItem,
+		Placeholder:    "Find comment…",
+		EmptyText:      "No matching comments",
+		MaxVisibleRows: 8,
+		RowStyle:       vui.FuzzySelectOneLine,
+		OnDismiss: func(vui.EventContext) {
+			s.commentFinder = false
+			s.SetState(func() {})
+		},
+		OnSelected: func(_ vui.EventContext, item uiDiffCommentItem) {
+			s.commentFinder = false
+			s.setCursorRowAtStart(rows, item.Row)
+		},
+	}
+}
+
+func uiDiffCommentFinderItems(idx commentIndex) []uiDiffCommentItem {
+	items := make([]uiDiffCommentItem, 0, len(idx.entries))
+	for _, entry := range idx.entries {
+		items = append(items, uiDiffCommentItem{
+			Label:   uiDiffCommentLocation(entry.draft),
+			Preview: uiDiffCommentPreview(entry.draft.Body),
+			Row:     entry.row,
+		})
+	}
+	return items
+}
+
+func uiDiffCommentSelectItem(item uiDiffCommentItem) vui.FuzzySelectItem {
+	return vui.FuzzySelectItem{
+		Title:       item.Label,
+		Description: item.Preview,
+		Aliases:     []string{item.Label, item.Preview},
+		Trailing:    vui.Text{Value: item.Preview, MaxLines: 1, Overflow: vui.TextOverflowEllipsis},
+	}
+}
+
+func uiDiffCommentLocation(draft review.CommentDraft) string {
+	if draft.StartLine != 0 && draft.StartLine != draft.Line {
+		return fmt.Sprintf("%s:%d-%d", draft.Path, draft.StartLine, draft.Line)
+	}
+	return fmt.Sprintf("%s:%d", draft.Path, draft.Line)
+}
+
+func uiDiffCommentPreview(body string) string {
+	for _, line := range strings.Split(body, "\n") {
+		preview := strings.Join(strings.Fields(line), " ")
+		if preview != "" {
+			return preview
+		}
+	}
+	return "(empty comment)"
 }
 
 func uiDiffFileStatsFromRow(rows []diff.Row, fileRow int) statusStats {
@@ -1052,6 +1119,9 @@ func (s *uiDiffViewState) HandleEvent(ctx vui.EventContext, ev vui.Event) vui.Ev
 	if s.fileFinder {
 		return vui.EventIgnored
 	}
+	if s.commentFinder {
+		return vui.EventIgnored
+	}
 	if s.themeFinder {
 		return vui.EventIgnored
 	}
@@ -1198,6 +1268,15 @@ func (s *uiDiffViewState) HandleEvent(ctx vui.EventContext, ev vui.Event) vui.Ev
 			return vui.EventHandled
 		}
 		s.fileFinder = true
+		s.SetState(func() {})
+		return vui.EventHandled
+	case key.Matches('n') && s.pendingSpace:
+		s.clearPendingKeys()
+		commentIdx := buildCommentIndex(rows, s.allReviewDrafts(w.ReviewDrafts))
+		if len(uiDiffCommentFinderItems(commentIdx)) == 0 {
+			return vui.EventHandled
+		}
+		s.commentFinder = true
 		s.SetState(func() {})
 		return vui.EventHandled
 	case w.Binds.Matches(key, "next_result"):
