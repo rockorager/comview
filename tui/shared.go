@@ -3,7 +3,6 @@ package tui
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -570,21 +569,7 @@ func reviewDraftContains(draft review.CommentDraft, anchor review.Anchor) bool {
 }
 
 func noteTargetRows(rows []diff.Row, drafts []review.CommentDraft) []int {
-	targets := make([]int, 0, len(drafts))
-	seen := make(map[int]bool, len(drafts))
-	for _, draft := range drafts {
-		for index, row := range rows {
-			if reviewDraftContains(draft, row.Review) {
-				if !seen[index] {
-					targets = append(targets, index)
-					seen[index] = true
-				}
-				break
-			}
-		}
-	}
-	sort.Ints(targets)
-	return targets
+	return buildCommentIndex(rows, drafts).TargetRows()
 }
 
 func segmentsText(segments []vaxis.Segment) string {

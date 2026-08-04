@@ -1936,6 +1936,38 @@ func TestUIDiffViewBracketNJumpsBetweenNotes(t *testing.T) {
 	}
 }
 
+func TestUIDiffViewBracketNJumpsToRangeCommentTargetOnce(t *testing.T) {
+	rows := []diff.Row{
+		{Kind: diff.RowAdd, Gutter: "1 1   ", Code: "one", Review: review.Anchor{Path: "main.go", Line: 1, Side: review.SideRight}},
+		{Kind: diff.RowAdd, Gutter: "2 2   ", Code: "two", Review: review.Anchor{Path: "main.go", Line: 2, Side: review.SideRight}},
+		{Kind: diff.RowAdd, Gutter: "3 3   ", Code: "three", Review: review.Anchor{Path: "main.go", Line: 3, Side: review.SideRight}},
+	}
+	drafts := []review.CommentDraft{{Path: "main.go", StartLine: 1, StartSide: review.SideRight, Line: 3, Side: review.SideRight, Body: "range"}}
+	app := newUIDiffTestAppWithBaseAndDrafts(rows, DefaultBaseColors(), false, drafts)
+	size := vui.Size{Width: 24, Height: 7}
+	app.Pump(size)
+	app.Pump(size)
+
+	app.Send(vaxis.Key{Text: "]", Keycode: ']'})
+	app.Send(vaxis.Key{Text: "n", Keycode: 'n'})
+	app.Pump(size)
+
+	p := vui.NewPainter(size)
+	app.Paint(p)
+	if got := uiDiffHighlightedScreenRow(p, uiDiffCursorRowBackground(uiDiffTestTheme())); got != 2 {
+		t.Fatalf("]n range highlight row = %d, want end row 2", got)
+	}
+
+	app.Send(vaxis.Key{Text: "]", Keycode: ']'})
+	app.Send(vaxis.Key{Text: "n", Keycode: 'n'})
+	app.Pump(size)
+	p = vui.NewPainter(size)
+	app.Paint(p)
+	if got := uiDiffHighlightedScreenRow(p, uiDiffCursorRowBackground(uiDiffTestTheme())); got != 2 {
+		t.Fatalf("second ]n range highlight row = %d, want unchanged row 2", got)
+	}
+}
+
 func TestUIDiffViewSlashSearchMovesToMatch(t *testing.T) {
 	rows := []diff.Row{
 		{Kind: diff.RowContext, Gutter: "1 1   ", Code: "alpha"},
