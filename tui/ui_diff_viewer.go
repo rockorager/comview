@@ -535,6 +535,11 @@ func (s *uiDiffViewState) allReviewDrafts(base []review.CommentDraft) []review.C
 	return drafts
 }
 
+func (s *uiDiffViewState) commentIndex(rows []diff.Row) commentIndex {
+	w := s.Widget().(uiDiffView)
+	return buildCommentIndex(rows, s.allReviewDrafts(w.ReviewDrafts))
+}
+
 type uiDiffFileItem struct {
 	Label  string
 	Detail string
@@ -1477,9 +1482,10 @@ func (s *uiDiffViewState) commentItemRowAndOffsetForMouse(rows []diff.Row, mouse
 		}
 		logicalY = metrics.ScrollOffset + mouse.Row
 	}
+	comments := s.commentIndex(rows)
 	visualY := 0
 	for rowIndex := range rows {
-		height := 1 + s.commentRowsForMouse(rows, rowIndex)
+		height := 1 + s.commentRowsForMouse(rows, rowIndex, comments)
 		if logicalY >= visualY && logicalY < visualY+height {
 			return rowIndex, logicalY - visualY, true
 		}
@@ -1488,7 +1494,7 @@ func (s *uiDiffViewState) commentItemRowAndOffsetForMouse(rows []diff.Row, mouse
 	return 0, 0, false
 }
 
-func (s *uiDiffViewState) commentRowsForMouse(rows []diff.Row, row int) int {
+func (s *uiDiffViewState) commentRowsForMouse(rows []diff.Row, row int, comments commentIndex) int {
 	if row < 0 || row >= len(rows) {
 		return 0
 	}
@@ -1498,9 +1504,8 @@ func (s *uiDiffViewState) commentRowsForMouse(rows []diff.Row, row int) int {
 	if strings.TrimSpace(s.commentEditorBodies[row]) != "" {
 		return uiDiffCommentEditorRows(s.commentEditorBodies[row])
 	}
-	w := s.Widget().(uiDiffView)
 	count := 0
-	for _, draft := range reviewDraftsForRow(rows[row], s.allReviewDrafts(w.ReviewDrafts)) {
+	for _, draft := range comments.DraftsForRow(row) {
 		count += uiDiffCommentEditorRows(draft.Body)
 	}
 	return count
@@ -1964,10 +1969,8 @@ func (s *uiDiffViewState) reviewDraftForSelection(rows []diff.Row) (review.Comme
 }
 
 func (s *uiDiffViewState) reviewDraftTargetRow(rows []diff.Row, draft review.CommentDraft) int {
-	for rowIndex, row := range rows {
-		if reviewDraftEndsAt(draft, row.Review) {
-			return rowIndex
-		}
+	if row, ok := commentIndexTargetRow(rows, draft); ok {
+		return row
 	}
 	return s.cursor.Row
 }
@@ -2347,6 +2350,7 @@ func (s *uiDiffViewState) hasUnsavedReviewChanges(rows []diff.Row) bool {
 			return true
 		}
 	}
+	comments := s.commentIndex(rows)
 	for row, body := range s.commentEditorBodies {
 		if strings.TrimSpace(body) == "" {
 			continue
@@ -2354,8 +2358,7 @@ func (s *uiDiffViewState) hasUnsavedReviewChanges(rows []diff.Row) bool {
 		if row < 0 || row >= len(rows) {
 			return true
 		}
-		w := s.Widget().(uiDiffView)
-		drafts := reviewDraftsForRow(rows[row], s.allReviewDrafts(w.ReviewDrafts))
+		drafts := comments.DraftsForRow(row)
 		if len(drafts) == 0 || body != drafts[0].Body {
 			return true
 		}
@@ -2619,8 +2622,7 @@ func (s *uiDiffViewState) commentEditorBodyForRow(rows []diff.Row, row int) stri
 	if row < 0 || row >= len(rows) {
 		return ""
 	}
-	w := s.Widget().(uiDiffView)
-	drafts := reviewDraftsForRow(rows[row], s.allReviewDrafts(w.ReviewDrafts))
+	drafts := s.commentIndex(rows).DraftsForRow(row)
 	if len(drafts) == 0 {
 		return ""
 	}
@@ -2629,6 +2631,7 @@ func (s *uiDiffViewState) commentEditorBodyForRow(rows []diff.Row, row int) stri
 
 func (s *uiDiffViewState) focusCommentEditorRow(rows []diff.Row, row int) {
 	s.storeCommentEditorBody()
+	comments := s.commentIndex(rows)
 	body := s.commentEditorBodyForRow(rows, row)
 	s.commentEditorActive = true
 	s.commentEditorFocused = true
@@ -2637,8 +2640,7 @@ func (s *uiDiffViewState) focusCommentEditorRow(rows []diff.Row, row int) {
 	s.commentEditorCursor = nil
 	s.commentEditorTarget = uiDiffCommentTarget{Row: row}
 	if row >= 0 && row < len(rows) {
-		w := s.Widget().(uiDiffView)
-		if drafts := reviewDraftsForRow(rows[row], s.allReviewDrafts(w.ReviewDrafts)); len(drafts) > 0 {
+		if drafts := comments.DraftsForRow(row); len(drafts) > 0 {
 			s.commentEditorTarget.Draft = drafts[0]
 		}
 	}
@@ -3538,19 +3540,6 @@ func uiDiffIndentedComment(indent int, child vui.Widget, theme vui.Theme) vui.Wi
 		uiDiffFixedCell(indent, style, vui.Text{Value: strings.Repeat(" ", indent), Style: style}),
 		child,
 	)
-}
-
-func reviewDraftsForRow(row diff.Row, drafts []review.CommentDraft) []review.CommentDraft {
-	if !reviewAnchorValid(row.Review) {
-		return nil
-	}
-	matches := make([]review.CommentDraft, 0, 1)
-	for _, draft := range drafts {
-		if reviewDraftEndsAt(draft, row.Review) {
-			matches = append(matches, draft)
-		}
-	}
-	return matches
 }
 
 func uiDiffRowBackground(active bool, selected bool, yanked bool, theme vui.Theme) vaxis.Color {

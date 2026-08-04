@@ -8,10 +8,12 @@ import (
 	"go.rockorager.dev/comview/review"
 )
 
+// commentIndex maps visible draft comments to the diff rows that should render or jump to them.
 type commentIndex struct {
 	entries []commentIndexEntry
 }
 
+// commentIndexEntry keeps the original draft plus its resolved visible target row.
 type commentIndexEntry struct {
 	Draft     review.CommentDraft
 	Row       int
@@ -24,6 +26,8 @@ type commentIndexEntry struct {
 	Preview   string
 }
 
+// buildCommentIndex indexes drafts that resolve against the current visible rows.
+// Drafts with no visible matching anchor are skipped.
 func buildCommentIndex(rows []diff.Row, drafts []review.CommentDraft) commentIndex {
 	entries := make([]commentIndexEntry, 0, len(drafts))
 	for _, draft := range drafts {
@@ -47,6 +51,7 @@ func buildCommentIndex(rows []diff.Row, drafts []review.CommentDraft) commentInd
 	return commentIndex{entries: entries}
 }
 
+// commentIndexTargetRow prefers an exact end-anchor match, then any row contained in the draft range.
 func commentIndexTargetRow(rows []diff.Row, draft review.CommentDraft) (int, bool) {
 	for rowIndex, row := range rows {
 		if reviewDraftEndsAt(draft, row.Review) {
@@ -61,6 +66,7 @@ func commentIndexTargetRow(rows []diff.Row, draft review.CommentDraft) (int, boo
 	return 0, false
 }
 
+// Entries returns a copy so callers cannot mutate the shared index.
 func (idx commentIndex) Entries() []commentIndexEntry {
 	entries := make([]commentIndexEntry, len(idx.entries))
 	copy(entries, idx.entries)
