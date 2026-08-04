@@ -1505,7 +1505,7 @@ func (s *uiDiffViewState) commentRowsForMouse(rows []diff.Row, row int, comments
 		return uiDiffCommentEditorRows(s.commentEditorBodies[row])
 	}
 	count := 0
-	for _, draft := range comments.DraftsForRow(row) {
+	for _, draft := range comments.draftsForRow(row) {
 		count += uiDiffCommentEditorRows(draft.Body)
 	}
 	return count
@@ -2358,7 +2358,7 @@ func (s *uiDiffViewState) hasUnsavedReviewChanges(rows []diff.Row) bool {
 		if row < 0 || row >= len(rows) {
 			return true
 		}
-		drafts := comments.DraftsForRow(row)
+		drafts := comments.draftsForRow(row)
 		if len(drafts) == 0 || body != drafts[0].Body {
 			return true
 		}
@@ -2613,6 +2613,10 @@ func (s *uiDiffViewState) moveIntoCommentEditor(rows []diff.Row, delta int) bool
 }
 
 func (s *uiDiffViewState) commentEditorBodyForRow(rows []diff.Row, row int) string {
+	return s.commentEditorBodyForRowWithIndex(rows, row, s.commentIndex(rows))
+}
+
+func (s *uiDiffViewState) commentEditorBodyForRowWithIndex(rows []diff.Row, row int, comments commentIndex) string {
 	if s.commentEditorActive && s.commentEditorRow == row && strings.TrimSpace(s.commentEditorBody) != "" {
 		return s.commentEditorBody
 	}
@@ -2622,7 +2626,7 @@ func (s *uiDiffViewState) commentEditorBodyForRow(rows []diff.Row, row int) stri
 	if row < 0 || row >= len(rows) {
 		return ""
 	}
-	drafts := s.commentIndex(rows).DraftsForRow(row)
+	drafts := comments.draftsForRow(row)
 	if len(drafts) == 0 {
 		return ""
 	}
@@ -2632,7 +2636,7 @@ func (s *uiDiffViewState) commentEditorBodyForRow(rows []diff.Row, row int) stri
 func (s *uiDiffViewState) focusCommentEditorRow(rows []diff.Row, row int) {
 	s.storeCommentEditorBody()
 	comments := s.commentIndex(rows)
-	body := s.commentEditorBodyForRow(rows, row)
+	body := s.commentEditorBodyForRowWithIndex(rows, row, comments)
 	s.commentEditorActive = true
 	s.commentEditorFocused = true
 	s.commentEditorInsert = false
@@ -2640,7 +2644,7 @@ func (s *uiDiffViewState) focusCommentEditorRow(rows []diff.Row, row int) {
 	s.commentEditorCursor = nil
 	s.commentEditorTarget = uiDiffCommentTarget{Row: row}
 	if row >= 0 && row < len(rows) {
-		if drafts := comments.DraftsForRow(row); len(drafts) > 0 {
+		if drafts := comments.draftsForRow(row); len(drafts) > 0 {
 			s.commentEditorTarget.Draft = drafts[0]
 		}
 	}
@@ -3073,7 +3077,7 @@ func (s *uiDiffViewState) buildItem(rows []diff.Row, rowIndex int, theme vui.The
 		showDrafts = false
 	}
 	if showDrafts {
-		for _, draft := range comments.DraftsForRow(rowIndex) {
+		for _, draft := range comments.draftsForRow(rowIndex) {
 			children = append(children, uiDiffIndentedComment(commentIndent, uiDiffReviewDraft(draft, theme, func(vui.EventContext) {
 				s.focusCommentEditorRow(rows, rowIndex)
 				s.commentEditorInsert = true
@@ -3222,7 +3226,7 @@ func (s *uiDiffViewState) buildSideBySideCommentRows(rows []diff.Row, rowIndex i
 		showDrafts = false
 	}
 	if showDrafts {
-		for _, draft := range comments.DraftsForRow(rowIndex) {
+		for _, draft := range comments.draftsForRow(rowIndex) {
 			addCommentWidget(uiDiffReviewDraft(draft, theme, func(vui.EventContext) {
 				s.focusCommentEditorRow(rows, rowIndex)
 				s.commentEditorInsert = true
