@@ -1936,6 +1936,51 @@ func TestUIDiffViewBracketNJumpsBetweenNotes(t *testing.T) {
 	}
 }
 
+func TestUIDiffViewBracketNJumpsBetweenNewSessionNotes(t *testing.T) {
+	rows := []diff.Row{
+		{Kind: diff.RowAdd, Gutter: "1 1 + ", Code: "one", Review: review.Anchor{Path: "main.go", Line: 1, Side: review.SideRight}},
+		{Kind: diff.RowAdd, Gutter: "2 2 + ", Code: "two", Review: review.Anchor{Path: "main.go", Line: 2, Side: review.SideRight}},
+		{Kind: diff.RowAdd, Gutter: "3 3 + ", Code: "three", Review: review.Anchor{Path: "main.go", Line: 3, Side: review.SideRight}},
+	}
+	app := newUIDiffTestAppWithBaseDraftsAndStatus(rows, DefaultBaseColors(), false, nil, true)
+	size := vui.Size{Width: 80, Height: 12}
+	app.Pump(size)
+	app.Pump(size)
+
+	app.Send(vaxis.Key{Text: "j", Keycode: 'j'})
+	app.Send(vaxis.Key{Text: "i", Keycode: 'i'})
+	app.Pump(size)
+	app.Send(vaxis.Key{Text: "first"})
+	app.Send(vaxis.Key{Text: "s", Keycode: 's', Modifiers: vaxis.ModCtrl})
+	app.Pump(size)
+
+	app.Send(vaxis.Key{Text: "j", Keycode: 'j'})
+	app.Send(vaxis.Key{Text: "j", Keycode: 'j'})
+	app.Send(vaxis.Key{Text: "i", Keycode: 'i'})
+	app.Pump(size)
+	app.Send(vaxis.Key{Text: "second"})
+	app.Send(vaxis.Key{Text: "s", Keycode: 's', Modifiers: vaxis.ModCtrl})
+	app.Pump(size)
+
+	app.Send(vaxis.Key{Text: "[", Keycode: '['})
+	app.Send(vaxis.Key{Text: "n", Keycode: 'n'})
+	app.Pump(size)
+	p := vui.NewPainter(size)
+	app.Paint(p)
+	if got := uiDiffHighlightedScreenRow(p, uiDiffCursorRowBackground(uiDiffTestTheme())); got != 1 {
+		t.Fatalf("[n newly-created note highlight row = %d, want first note row 1", got)
+	}
+
+	app.Send(vaxis.Key{Text: "]", Keycode: ']'})
+	app.Send(vaxis.Key{Text: "n", Keycode: 'n'})
+	app.Pump(size)
+	p = vui.NewPainter(size)
+	app.Paint(p)
+	if got := uiDiffHighlightedScreenRow(p, uiDiffCursorRowBackground(uiDiffTestTheme())); got != 5 {
+		t.Fatalf("]n newly-created note highlight row = %d, want second note row 5", got)
+	}
+}
+
 func TestUIDiffViewBracketNJumpsToRangeCommentTargetOnce(t *testing.T) {
 	rows := []diff.Row{
 		{Kind: diff.RowAdd, Gutter: "1 1   ", Code: "one", Review: review.Anchor{Path: "main.go", Line: 1, Side: review.SideRight}},
