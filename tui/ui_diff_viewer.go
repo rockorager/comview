@@ -1377,7 +1377,7 @@ func (s *uiDiffViewState) HandleEvent(ctx vui.EventContext, ev vui.Event) vui.Ev
 }
 
 func (s *uiDiffViewState) handleMouse(_ vui.EventContext, mouse vaxis.Mouse) vui.EventResult {
-	if s.fileFinder {
+	if s.fileFinder || s.commentFinder {
 		return vui.EventIgnored
 	}
 	w := s.Widget().(uiDiffView)
@@ -4392,7 +4392,13 @@ func (s *uiDiffViewState) jumpCommit(rows []diff.Row, direction int) {
 
 func (s *uiDiffViewState) setCursorRowAtStart(rows []diff.Row, row int) {
 	s.setCursorRow(rows, row)
-	s.list.ScrollToIndex(s.cursor.Row, vui.ScrollAlignStart)
+	visualRow := s.cursor.Row
+	if s.sideBySide {
+		if row, ok := uiDiffSideBySideVisualIndex(rows, visualRow); ok {
+			visualRow = row
+		}
+	}
+	s.list.ScrollToIndex(visualRow, vui.ScrollAlignStart)
 }
 
 func (s *uiDiffViewState) jumpChange(rows []diff.Row, direction int) {

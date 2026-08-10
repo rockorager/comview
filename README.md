@@ -56,6 +56,7 @@ Comments are saved to `.comview/comments.json`.
 | `s` | Toggle side-by-side view |
 | `t` | Choose theme |
 | `<space>e` | Find file in diff |
+| `<space>n` | Find comment |
 | `/` | Search |
 | `n` / `N` | Next / previous search result |
 | `o` | Open cursor location in editor |

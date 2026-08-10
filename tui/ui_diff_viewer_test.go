@@ -624,6 +624,80 @@ func TestUIDiffViewCommentFinderJumpsToSelectedComment(t *testing.T) {
 	}
 }
 
+func TestUIDiffViewCommentFinderJumpsToSelectedCommentSideBySide(t *testing.T) {
+	rows := make([]diff.Row, 0, 20)
+	for line := 1; line <= 10; line++ {
+		rows = append(
+			rows,
+			diff.Row{Kind: diff.RowDelete, Gutter: fmt.Sprintf("%d     - ", line), Code: fmt.Sprintf("old %d", line), Review: review.Anchor{Path: "main.go", Line: line, Side: review.SideLeft}},
+			diff.Row{Kind: diff.RowAdd, Gutter: fmt.Sprintf("    %d + ", line), Code: fmt.Sprintf("new %d", line), Review: review.Anchor{Path: "main.go", Line: line, Side: review.SideRight}},
+		)
+	}
+	drafts := []review.CommentDraft{{Path: "main.go", Line: 2, Side: review.SideRight, Body: "selected note"}}
+	app := newUIDiffTestAppWithBaseDraftsAndStatus(rows, DefaultBaseColors(), false, drafts, true)
+	size := vui.Size{Width: 60, Height: 4}
+	app.Pump(size)
+	app.Pump(size)
+
+	app.Send(vaxis.Key{Text: "s", Keycode: 's'})
+	app.Pump(size)
+	app.Send(vaxis.Key{Text: " ", Keycode: vaxis.KeySpace})
+	app.Send(vaxis.Key{Text: "n", Keycode: 'n'})
+	app.Pump(size)
+	app.Send(vaxis.Key{Keycode: vaxis.KeyEnter})
+	app.Pump(size)
+	app.Pump(size)
+
+	p := vui.NewPainter(size)
+	app.Paint(p)
+	if _, _, ok := uiDiffFindText(p, "new 2"); !ok {
+		t.Fatal("selected side-by-side comment target row is not visible")
+	}
+}
+
+func TestUIDiffViewCommentFinderHandlesMouseSelection(t *testing.T) {
+	rows := []diff.Row{
+		{Kind: diff.RowAdd, Gutter: "1 1   ", Code: "first", Review: review.Anchor{Path: "main.go", Line: 1, Side: review.SideRight}},
+		{Kind: diff.RowAdd, Gutter: "2 2   ", Code: "second", Review: review.Anchor{Path: "main.go", Line: 2, Side: review.SideRight}},
+	}
+	drafts := []review.CommentDraft{
+		{Path: "main.go", Line: 1, Side: review.SideRight, Body: "first note"},
+		{Path: "main.go", Line: 2, Side: review.SideRight, Body: "second note"},
+	}
+	app := newUIDiffTestAppWithBaseDraftsAndStatus(rows, DefaultBaseColors(), false, drafts, true)
+	size := vui.Size{Width: 80, Height: 8}
+	app.Pump(size)
+	app.Pump(size)
+
+	app.Send(vaxis.Key{Text: " ", Keycode: vaxis.KeySpace})
+	app.Send(vaxis.Key{Text: "n", Keycode: 'n'})
+	app.Pump(size)
+	p := vui.NewPainter(size)
+	app.Paint(p)
+	col, row, ok := uiDiffFindText(p, "main.go:2")
+	if !ok {
+		t.Fatal("second comment finder item is not visible")
+	}
+
+	app.Send(vaxis.Mouse{Button: vaxis.MouseLeftButton, EventType: vaxis.EventPress, Row: row, Col: col})
+	app.Send(vaxis.Mouse{Button: vaxis.MouseLeftButton, EventType: vaxis.EventRelease, Row: row, Col: col})
+	app.Pump(size)
+	app.Pump(size)
+
+	p = vui.NewPainter(size)
+	app.Paint(p)
+	if _, _, ok := uiDiffFindText(p, "Find comment…"); ok {
+		t.Fatal("comment finder stayed visible after mouse selection")
+	}
+	col, row, ok = uiDiffFindText(p, "2 2   second")
+	if !ok {
+		t.Fatal("mouse-selected comment target row is not visible")
+	}
+	if got := p.Cell(col, row).Background; got != uiDiffCursorRowBackground(uiDiffTestTheme()) {
+		t.Fatalf("mouse-selected comment target background = %v, want cursor row background", got)
+	}
+}
+
 func TestUIDiffViewCommentFinderDoesNotOpenWithoutIndexedComments(t *testing.T) {
 	rows := []diff.Row{
 		{Kind: diff.RowAdd, Gutter: "1 1   ", Code: "first", Review: review.Anchor{Path: "main.go", Line: 1, Side: review.SideRight}},
@@ -713,6 +787,9 @@ func TestUIDiffViewQuestionTogglesHelpOverlay(t *testing.T) {
 	}
 	if _, _, ok := uiDiffFindText(p, "Open cursor location in editor"); !ok {
 		t.Fatal("help overlay did not include legacy keybinds")
+	}
+	if _, _, ok := uiDiffFindText(p, "Find comment"); !ok {
+		t.Fatal("help overlay did not include comment finder keybind")
 	}
 	if _, _, ok := uiDiffFindText(p, "╭"); ok {
 		t.Fatal("help overlay rendered border chrome")
