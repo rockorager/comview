@@ -120,6 +120,7 @@ var helpKeybinds = []helpKeybind{
 	{Key: "s", READMEKey: "`s`", Action: "Toggle side-by-side view"},
 	{Key: "t", READMEKey: "`t`", Action: "Choose theme"},
 	{Key: "Space e", READMEKey: "`<space>e`", Action: "Find file in diff"},
+	{Key: "Space n", READMEKey: "`<space>n`", Action: "Find comment"},
 	{Key: "/", READMEKey: "`/`", Action: "Search"},
 	{Key: "n / N", READMEKey: "`n` / `N`", Action: "Next / previous search result"},
 	{Key: "o", READMEKey: "`o`", Action: "Open cursor location in editor"},
