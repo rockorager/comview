@@ -1860,6 +1860,7 @@ func TestUIDiffViewVimNavigationKeys(t *testing.T) {
 		prime         []vaxis.Key
 		key           vaxis.Key
 		wantHighlight int
+		wantText      string
 	}{
 		{
 			name:          "Home moves cursor to top",
@@ -1889,6 +1890,12 @@ func TestUIDiffViewVimNavigationKeys(t *testing.T) {
 			wantHighlight: 2,
 		},
 		{
+			name:          "Ctrl+f moves cursor down full page",
+			key:           vaxis.Key{Text: "f", Keycode: 'f', Modifiers: vaxis.ModCtrl},
+			wantHighlight: 3,
+			wantText:      "line 4",
+		},
+		{
 			name:          "Ctrl+u moves cursor up half page",
 			prime:         []vaxis.Key{{Text: "G", Keycode: 'G'}},
 			key:           vaxis.Key{Text: "u", Keycode: 'u', Modifiers: vaxis.ModCtrl},
@@ -1900,13 +1907,20 @@ func TestUIDiffViewVimNavigationKeys(t *testing.T) {
 			key:           vaxis.Key{Keycode: vaxis.KeyPgUp},
 			wantHighlight: 1,
 		},
+		{
+			name:          "Ctrl+b moves cursor up full page",
+			prime:         []vaxis.Key{{Text: "G", Keycode: 'G'}},
+			key:           vaxis.Key{Text: "b", Keycode: 'b', Modifiers: vaxis.ModCtrl},
+			wantHighlight: 0,
+			wantText:      "line 15",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rows := make([]diff.Row, 20)
 			for i := range rows {
-				rows[i] = diff.Row{Kind: diff.RowContext, Gutter: "1 1   ", Code: "line"}
+				rows[i] = diff.Row{Kind: diff.RowContext, Gutter: "1 1   ", Code: fmt.Sprintf("line %d", i)}
 			}
 			app := newUIDiffTestApp(rows, false)
 			app.Pump(vui.Size{Width: 20, Height: 4})
@@ -1925,8 +1939,12 @@ func TestUIDiffViewVimNavigationKeys(t *testing.T) {
 
 			p := vui.NewPainter(vui.Size{Width: 20, Height: 4})
 			app.Paint(p)
-			if got := uiDiffHighlightedScreenRow(p, uiDiffCursorRowBackground(uiDiffTestTheme())); got != tt.wantHighlight {
-				t.Fatalf("highlight row = %d, want %d", got, tt.wantHighlight)
+			highlight := uiDiffHighlightedScreenRow(p, uiDiffCursorRowBackground(uiDiffTestTheme()))
+			if highlight != tt.wantHighlight {
+				t.Fatalf("highlight row = %d, want %d", highlight, tt.wantHighlight)
+			}
+			if got := uiDiffPainterText(p, highlight); tt.wantText != "" && !strings.Contains(got, tt.wantText) {
+				t.Fatalf("highlighted row = %q, want %q", got, tt.wantText)
 			}
 		})
 	}

@@ -114,6 +114,7 @@ var helpKeybinds = []helpKeybind{
 	{Key: "h/l", READMEKey: "`h`/`l`", Action: "Move horizontally"},
 	{Key: "gg / G", READMEKey: "`gg` / `G`", Action: "Top / bottom"},
 	{Key: "Ctrl-d / Ctrl-u", READMEKey: "`Ctrl-d` / `Ctrl-u`", Action: "Half-page down / up"},
+	{Key: "Ctrl-f / Ctrl-b", READMEKey: "`Ctrl-f` / `Ctrl-b`", Action: "Full-page down / up"},
 	{Key: "J / K", READMEKey: "`J` / `K`", Action: "Next / previous commit"},
 	{Key: "]c / [c", READMEKey: "`]c` / `[c`", Action: "Next / previous change"},
 	{Key: "]n / [n", READMEKey: "`]n` / `[n`", Action: "Next / previous note"},

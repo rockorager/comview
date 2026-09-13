@@ -72,6 +72,8 @@ var defaultKeybindings = map[string][]string{
 	"cursor_right":   {"l", "Right"},
 	"half_page_down": {"ctrl+d", "Page_Down"},
 	"half_page_up":   {"ctrl+u", "Page_Up"},
+	"full_page_down": {"ctrl+f"},
+	"full_page_up":   {"ctrl+b"},
 	"cursor_bottom":  {"G", "End"},
 	"next_commit":    {"J"},
 	"prev_commit":    {"K"},

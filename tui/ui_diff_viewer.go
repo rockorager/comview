@@ -1332,6 +1332,14 @@ func (s *uiDiffViewState) HandleEvent(ctx vui.EventContext, ev vui.Event) vui.Ev
 		s.clearPendingKeys()
 		s.moveCursorRows(rows, -s.halfPageRows())
 		return vui.EventHandled
+	case w.Binds.Matches(key, "full_page_down"):
+		s.clearPendingKeys()
+		s.moveCursorRows(rows, s.pageRows())
+		return vui.EventHandled
+	case w.Binds.Matches(key, "full_page_up"):
+		s.clearPendingKeys()
+		s.moveCursorRows(rows, -s.pageRows())
+		return vui.EventHandled
 	case w.Binds.Matches(key, "next_commit"):
 		s.clearPendingKeys()
 		s.jumpCommit(rows, 1)
@@ -4557,12 +4565,16 @@ func uiDiffChangeTargetRows(rows []diff.Row) []int {
 	return targets
 }
 
-func (s *uiDiffViewState) halfPageRows() int {
+func (s *uiDiffViewState) pageRows() int {
 	first, last, ok := s.list.VisibleRange()
-	if !ok || last <= first+1 {
+	if !ok || last <= first {
 		return 1
 	}
-	return maxInt(1, (last-first)/2)
+	return last - first
+}
+
+func (s *uiDiffViewState) halfPageRows() int {
+	return maxInt(1, s.pageRows()/2)
 }
 
 func (s *uiDiffViewState) revealCursorRow() {
