@@ -1950,6 +1950,147 @@ func TestUIDiffViewVimNavigationKeys(t *testing.T) {
 	}
 }
 
+func TestUIDiffViewPageNavigationBoundaries(t *testing.T) {
+	for _, wrap := range []bool{false, true} {
+		for _, tt := range []struct {
+			name                       string
+			count, height, start, want int
+			key                        vaxis.Key
+		}{
+			{"down", 17, 5, 2, 7, vaxis.Key{Keycode: 'f', Modifiers: vaxis.ModCtrl}},
+			{"up", 17, 5, 11, 6, vaxis.Key{Keycode: 'b', Modifiers: vaxis.ModCtrl}},
+			{"bottom", 17, 5, 14, 16, vaxis.Key{Keycode: 'f', Modifiers: vaxis.ModCtrl}},
+			{"top", 17, 5, 3, 0, vaxis.Key{Keycode: 'b', Modifiers: vaxis.ModCtrl}},
+			{"small down", 3, 5, 0, 2, vaxis.Key{Keycode: 'f', Modifiers: vaxis.ModCtrl}},
+			{"small up", 3, 5, 2, 0, vaxis.Key{Keycode: 'b', Modifiers: vaxis.ModCtrl}},
+			{"singleton", 1, 5, 0, 0, vaxis.Key{Keycode: 'f', Modifiers: vaxis.ModCtrl}},
+			{"empty", 0, 5, 0, -1, vaxis.Key{Keycode: 'f', Modifiers: vaxis.ModCtrl}},
+			{"height one", 17, 1, 2, 3, vaxis.Key{Keycode: 'f', Modifiers: vaxis.ModCtrl}},
+			{"half down", 17, 5, 2, 4, vaxis.Key{Keycode: 'd', Modifiers: vaxis.ModCtrl}},
+			{"half up", 17, 5, 11, 9, vaxis.Key{Keycode: 'u', Modifiers: vaxis.ModCtrl}},
+			{"page down", 17, 5, 2, 4, vaxis.Key{Keycode: vaxis.KeyPgDown}},
+			{"page up", 17, 5, 11, 9, vaxis.Key{Keycode: vaxis.KeyPgUp}},
+		} {
+			t.Run(fmt.Sprintf("%s/wrap=%v", tt.name, wrap), func(t *testing.T) {
+				rows := make([]diff.Row, tt.count)
+				for i := range rows {
+					rows[i] = diff.Row{Kind: diff.RowContext, Gutter: "1 1   ", Code: fmt.Sprintf("line-%02d!", i)}
+				}
+				app := newUIDiffTestApp(rows, wrap)
+				size := vui.Size{Width: 30, Height: tt.height}
+				app.Pump(size)
+				app.Pump(size)
+				for range tt.start {
+					app.Send(vaxis.Key{Keycode: 'j'})
+					app.Pump(size)
+				}
+				app.Send(tt.key)
+				app.Pump(size)
+				app.Pump(size)
+				p := vui.NewPainter(size)
+				app.Paint(p)
+				highlight := uiDiffHighlightedScreenRow(p, uiDiffCursorRowBackground(uiDiffTestTheme()))
+				if tt.count == 0 {
+					if highlight != -1 || !strings.Contains(uiDiffPainterText(p, 1), "Pipe git diff") {
+						t.Fatal("paging changed the empty view")
+					}
+					return
+				}
+				want := fmt.Sprintf("line-%02d!", tt.want)
+				if got := uiDiffPainterText(p, highlight); !strings.Contains(got, want) {
+					t.Fatalf("highlighted row = %q, want %q", got, want)
+				}
+			})
+		}
+	}
+}
+
+func TestUIDiffViewPageNavigationSideBySide(t *testing.T) {
+	var rows []diff.Row
+	for i := range 7 {
+		rows = append(rows, diff.Row{Kind: diff.RowDelete, Gutter: "1     - ", Code: fmt.Sprintf("old-%d!", i)})
+	}
+	for i := range 4 {
+		rows = append(rows, diff.Row{Kind: diff.RowAdd, Gutter: "    1 + ", Code: fmt.Sprintf("new-%d!", i)})
+	}
+	rows = append(rows, diff.Row{Kind: diff.RowHunk, Text: "@@ next hunk @@"})
+	for i := range 7 {
+		rows = append(rows, diff.Row{Kind: diff.RowContext, Gutter: "1 1   ", Code: fmt.Sprintf("tail-%d!", i)})
+	}
+	rows = append(rows, diff.Row{Kind: diff.RowBlank})
+	for _, tt := range []struct {
+		name  string
+		start int
+		key   vaxis.Key
+		want  string
+	}{
+		{"down across change", 4, vaxis.Key{Keycode: 'f', Modifiers: vaxis.ModCtrl}, "tail-0!"},
+		{"up within additions", 10, vaxis.Key{Keycode: 'b', Modifiers: vaxis.ModCtrl}, "new-0!"},
+		{"up to unpaired deletion", 13, vaxis.Key{Keycode: 'b', Modifiers: vaxis.ModCtrl}, "old-6!"},
+		{"half down across change", 6, vaxis.Key{Keycode: 'd', Modifiers: vaxis.ModCtrl}, "tail-0!"},
+		{"half up within additions", 9, vaxis.Key{Keycode: 'u', Modifiers: vaxis.ModCtrl}, "new-1!"},
+		{"page down across change", 6, vaxis.Key{Keycode: vaxis.KeyPgDown}, "tail-0!"},
+		{"page up within additions", 9, vaxis.Key{Keycode: vaxis.KeyPgUp}, "new-1!"},
+		{"bottom skips trailing blank", 16, vaxis.Key{Keycode: 'f', Modifiers: vaxis.ModCtrl}, "tail-6!"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			app := newUIDiffTestApp(rows, false)
+			size := vui.Size{Width: 50, Height: 3}
+			app.Pump(size)
+			app.Pump(size)
+			app.Send(vaxis.Key{Keycode: 's'})
+			app.Pump(size)
+			for range tt.start {
+				app.Send(vaxis.Key{Keycode: 'j'})
+				app.Pump(size)
+			}
+			app.Send(tt.key)
+			app.Pump(size)
+			app.Pump(size)
+			p := vui.NewPainter(size)
+			app.Paint(p)
+			highlight := uiDiffHighlightedScreenRow(p, uiDiffCursorRowBackground(uiDiffTestTheme()))
+			if got := uiDiffPainterText(p, highlight); !strings.Contains(got, tt.want) {
+				t.Fatalf("highlighted row = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestUIDiffViewPageNavigationWrappedItems(t *testing.T) {
+	rows := []diff.Row{
+		{Kind: diff.RowContext, Gutter: "1 1   ", Code: strings.Repeat("a", 28)},
+		{Kind: diff.RowContext, Gutter: "2 2   ", Code: strings.Repeat("b", 28)},
+		{Kind: diff.RowContext, Gutter: "3 3   ", Code: "target-2"},
+		{Kind: diff.RowContext, Gutter: "4 4   ", Code: "target-3"},
+		{Kind: diff.RowContext, Gutter: "5 5   ", Code: "last"},
+	}
+	for _, tt := range []struct {
+		height int
+		want   string
+	}{
+		{3, "target-2"}, // Two logical items, with the second only partially visible.
+		{4, "target-2"}, // Two logical items ending exactly at the viewport boundary.
+		{5, "target-3"}, // Three logical items, not five screen lines.
+	} {
+		t.Run(fmt.Sprint(tt.height), func(t *testing.T) {
+			app := newUIDiffTestApp(rows, true)
+			size := vui.Size{Width: 20, Height: tt.height}
+			app.Pump(size)
+			app.Pump(size)
+			app.Send(vaxis.Key{Keycode: 'f', Modifiers: vaxis.ModCtrl})
+			app.Pump(size)
+			app.Pump(size)
+			p := vui.NewPainter(size)
+			app.Paint(p)
+			highlight := uiDiffHighlightedScreenRow(p, uiDiffCursorRowBackground(uiDiffTestTheme()))
+			if got := uiDiffPainterText(p, highlight); !strings.Contains(got, tt.want) {
+				t.Fatalf("highlighted row = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestUIDiffViewEditorTargetUsesCursorRow(t *testing.T) {
 	rows, err := rowsForInput(`diff --git a/main.go b/main.go
 --- a/main.go
@@ -2257,11 +2398,12 @@ func TestUIDiffViewUsesCustomNavigationKeybindings(t *testing.T) {
 	rows := []diff.Row{
 		{Kind: diff.RowContext, Gutter: "1 1   ", Code: "one"},
 		{Kind: diff.RowContext, Gutter: "2 2   ", Code: "two"},
+		{Kind: diff.RowContext, Gutter: "3 3   ", Code: "three"},
 	}
 	app := newUIDiffTestAppWithBindings(rows, map[string][]string{
-		"cursor_down": {"ctrl+n"},
+		"cursor_down": {"ctrl+f"},
 	})
-	size := vui.Size{Width: 20, Height: 3}
+	size := vui.Size{Width: 20, Height: 10}
 	app.Pump(size)
 	app.Pump(size)
 
@@ -2273,7 +2415,7 @@ func TestUIDiffViewUsesCustomNavigationKeybindings(t *testing.T) {
 		t.Fatalf("default cursor_down key moved to row %d, want 0", got)
 	}
 
-	app.Send(vaxis.Key{Keycode: 'n', Modifiers: vaxis.ModCtrl})
+	app.Send(vaxis.Key{Keycode: 'f', Modifiers: vaxis.ModCtrl})
 	app.Pump(size)
 	p = vui.NewPainter(size)
 	app.Paint(p)
