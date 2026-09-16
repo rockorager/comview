@@ -1326,19 +1326,19 @@ func (s *uiDiffViewState) HandleEvent(ctx vui.EventContext, ev vui.Event) vui.Ev
 		return vui.EventHandled
 	case w.Binds.Matches(key, "half_page_down"):
 		s.clearPendingKeys()
-		s.moveCursorRows(rows, s.halfPageRows())
+		s.moveCursorPageRows(rows, s.halfPageRows())
 		return vui.EventHandled
 	case w.Binds.Matches(key, "half_page_up"):
 		s.clearPendingKeys()
-		s.moveCursorRows(rows, -s.halfPageRows())
+		s.moveCursorPageRows(rows, -s.halfPageRows())
 		return vui.EventHandled
 	case w.Binds.Matches(key, "full_page_down"):
 		s.clearPendingKeys()
-		s.moveCursorRows(rows, s.pageRows())
+		s.moveCursorPageRows(rows, s.pageRows())
 		return vui.EventHandled
 	case w.Binds.Matches(key, "full_page_up"):
 		s.clearPendingKeys()
-		s.moveCursorRows(rows, -s.pageRows())
+		s.moveCursorPageRows(rows, -s.pageRows())
 		return vui.EventHandled
 	case w.Binds.Matches(key, "next_commit"):
 		s.clearPendingKeys()
@@ -4570,11 +4570,58 @@ func (s *uiDiffViewState) pageRows() int {
 	if !ok || last <= first {
 		return 1
 	}
-	return last - first
+	metrics := s.scroll.Metrics()
+	if metrics.ViewportHeight <= 0 {
+		return 1
+	}
+	// Measured lists may include the item starting exactly below the viewport.
+	// Keep partially visible items, but exclude items with no painted cells.
+	for last > first {
+		offset, ok := s.list.OffsetForIndex(last - 1)
+		if !ok || offset < metrics.ScrollOffset+metrics.ViewportHeight {
+			break
+		}
+		last--
+	}
+	return maxInt(1, last-first)
 }
 
 func (s *uiDiffViewState) halfPageRows() int {
 	return maxInt(1, s.pageRows()/2)
+}
+
+func (s *uiDiffViewState) moveCursorPageRows(rows []diff.Row, delta int) {
+	if len(rows) == 0 || delta == 0 {
+		return
+	}
+	if !s.sideBySide {
+		s.moveCursorRows(rows, delta)
+		return
+	}
+
+	// Page sizes count paired list items, not rows in the underlying diff.
+	sideRows := s.sideBySideRows(rows)
+	visualRow := 0
+	for index, row := range sideRows {
+		if rowContainsDocRow(row, s.cursor.Row) {
+			visualRow = index
+			break
+		}
+	}
+	target := clampUIDiffInt(visualRow+delta, 0, len(sideRows)-1)
+	side := sideForRow(rows[s.cursor.Row])
+	direction := signUIDiffInt(delta)
+	// Skip headings in visual order, searching back if the boundary is reached.
+	for _, step := range []int{direction, -direction} {
+		for index := target; index >= 0 && index < len(sideRows); index += step {
+			docRow := sideBySideDocRowForSide(sideRows[index], side)
+			if !uiDiffCursorableRow(rows[docRow]) || s.selectionActive && !selectableDiffRow(rows[docRow].Kind) {
+				continue
+			}
+			s.setCursorRow(rows, docRow)
+			return
+		}
+	}
 }
 
 func (s *uiDiffViewState) revealCursorRow() {
