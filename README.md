@@ -54,6 +54,8 @@ Comments are saved to `.comview/comments.json`.
 | `J` / `K` | Next / previous commit |
 | `]c` / `[c` | Next / previous change |
 | `]n` / `[n` | Next / previous note |
+| `za` / `zc` | Toggle / close fold |
+| `zM` / `zR` | Fold all files / unfold all |
 | `s` | Toggle side-by-side view |
 | `t` | Choose theme |
 | `<space>e` | Find file in diff |

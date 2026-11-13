@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -131,6 +132,11 @@ type uiDiffViewState struct {
 	metrics                   uiDiffDocumentMetrics
 	sideRowsRows              []diff.Row
 	sideRows                  []sideBySideRow
+	pendingZ                  bool
+	folded                    map[string]bool
+	foldRows                  []diff.Row
+	foldCache                 uiDiffFoldLayout
+	foldRevealFrames          int
 }
 
 type uiDiffDocumentMetrics struct {
@@ -166,12 +172,12 @@ func (s *uiDiffViewState) Build(ctx vui.BuildContext) vui.Widget {
 	commentIdx := buildCommentIndex(w.Rows, drafts)
 	sliver := vui.Widget(vui.SliverListBuilder{
 		Controller:          &s.list,
-		Count:               len(w.Rows),
+		Count:               s.visualRowCount(w.Rows),
 		ItemExtent:          uiDiffItemExtent(w.Wrap || metrics.HasCommitMessage || s.commentEditorActive || len(drafts) > 0),
 		EstimatedItemExtent: 1,
 		Overscan:            8,
 		Builder: func(ctx vui.BuildContext, row int) vui.Widget {
-			return s.buildItem(w.Rows, row, theme, highlightedRows, commentIdx, w.Wrap, metrics)
+			return s.buildItem(w.Rows, s.unifiedDocRow(w.Rows, row), theme, highlightedRows, commentIdx, w.Wrap, metrics)
 		},
 	})
 	if s.sideBySide {
@@ -564,6 +570,7 @@ func (s *uiDiffViewState) buildFileFinder(rows []diff.Row, theme vui.Theme) vui.
 		},
 		OnSelected: func(_ vui.EventContext, item uiDiffFileItem) {
 			s.fileFinder = false
+			s.revealRow(rows, item.Row)
 			s.setCursorRowAtStart(rows, item.Row)
 		},
 	}
@@ -628,6 +635,7 @@ func (s *uiDiffViewState) buildCommentFinder(rows []diff.Row, idx commentIndex) 
 		},
 		OnSelected: func(_ vui.EventContext, item uiDiffCommentItem) {
 			s.commentFinder = false
+			s.revealRow(rows, item.Row)
 			s.setCursorRowAtStart(rows, item.Row)
 		},
 	}
@@ -1024,11 +1032,11 @@ func (s *uiDiffViewState) documentMetrics(rows []diff.Row) uiDiffDocumentMetrics
 }
 
 func (s *uiDiffViewState) sideBySideRows(rows []diff.Row) []sideBySideRow {
-	if uiDiffRowsShareBacking(s.sideRowsRows, rows) {
+	if s.sideRowsRows != nil && uiDiffRowsShareBacking(s.sideRowsRows, rows) {
 		return s.sideRows
 	}
 	s.sideRowsRows = rows
-	s.sideRows = uiDiffSideBySideRowsForRows(rows)
+	s.sideRows = s.filterFoldedSideRows(rows, uiDiffSideBySideRowsForRows(rows))
 	return s.sideRows
 }
 
@@ -1186,6 +1194,22 @@ func (s *uiDiffViewState) HandleEvent(ctx vui.EventContext, ev vui.Event) vui.Ev
 		s.statusMessageUntil = time.Time{}
 		s.SetState(func() {})
 		return vui.EventHandled
+	case key.Matches('a') && s.pendingZ:
+		s.clearPendingKeys()
+		s.toggleFold(rows)
+		return vui.EventHandled
+	case key.Matches('c') && s.pendingZ:
+		s.clearPendingKeys()
+		s.closeFold(rows)
+		return vui.EventHandled
+	case key.Matches('M') && s.pendingZ:
+		s.clearPendingKeys()
+		s.foldAllFiles(rows)
+		return vui.EventHandled
+	case key.Matches('R') && s.pendingZ:
+		s.clearPendingKeys()
+		s.unfoldAll(rows)
+		return vui.EventHandled
 	case key.Matches('x'):
 		s.clearPendingKeys()
 		s.deleteReviewDraftCommand(rows, w.ReviewDrafts)
@@ -1198,6 +1222,7 @@ func (s *uiDiffViewState) HandleEvent(ctx vui.EventContext, ev vui.Event) vui.Ev
 		s.pendingG = false
 		s.pendingBracket = 0
 		s.pendingSpace = false
+		s.pendingZ = false
 		s.pendingD = true
 		return vui.EventHandled
 	case w.Binds.Matches(key, "open_editor"):
@@ -1260,6 +1285,7 @@ func (s *uiDiffViewState) HandleEvent(ctx vui.EventContext, ev vui.Event) vui.Ev
 	case key.Matches(vaxis.KeySpace):
 		s.pendingG = false
 		s.pendingBracket = 0
+		s.pendingZ = false
 		s.pendingSpace = true
 		return vui.EventHandled
 	case key.Matches('e') && s.pendingSpace:
@@ -1302,10 +1328,12 @@ func (s *uiDiffViewState) HandleEvent(ctx vui.EventContext, ev vui.Event) vui.Ev
 		return vui.EventIgnored
 	case key.Matches(']'):
 		s.pendingG = false
+		s.pendingZ = false
 		s.pendingBracket = ']'
 		return vui.EventHandled
 	case key.Matches('['):
 		s.pendingG = false
+		s.pendingZ = false
 		s.pendingBracket = '['
 		return vui.EventHandled
 	case key.Matches('g') && s.pendingG:
@@ -1314,6 +1342,7 @@ func (s *uiDiffViewState) HandleEvent(ctx vui.EventContext, ev vui.Event) vui.Ev
 		return vui.EventHandled
 	case key.Matches('g'):
 		s.pendingBracket = 0
+		s.pendingZ = false
 		s.pendingG = true
 		return vui.EventHandled
 	case key.Matches(vaxis.KeyHome):
@@ -1377,6 +1406,11 @@ func (s *uiDiffViewState) HandleEvent(ctx vui.EventContext, ev vui.Event) vui.Ev
 	case key.Matches('$'):
 		s.clearPendingKeys()
 		s.moveCursorLineEnd(rows)
+		return vui.EventHandled
+	case key.Matches('z'):
+		// After every binding, so a key rebound to z keeps its action.
+		s.clearPendingKeys()
+		s.pendingZ = true
 		return vui.EventHandled
 	default:
 		s.clearPendingKeys()
@@ -1559,7 +1593,7 @@ func (s *uiDiffViewState) commentCursorOffsetForMouse(rows []diff.Row, row int, 
 func (s *uiDiffViewState) commentItemRowAndOffsetForMouse(rows []diff.Row, mouse vaxis.Mouse) (int, int, bool) {
 	row, offset, ok := s.itemRowAndOffsetForMouse(mouse)
 	if ok && offset > 0 {
-		return row, offset, true
+		return s.unifiedDocRow(rows, row), offset, true
 	}
 	logicalY := mouse.Row
 	if s.scroll.Attached() {
@@ -1572,6 +1606,9 @@ func (s *uiDiffViewState) commentItemRowAndOffsetForMouse(rows []diff.Row, mouse
 	comments := s.commentIndex(rows)
 	visualY := 0
 	for rowIndex := range rows {
+		if s.rowHidden(rows, rowIndex) {
+			continue
+		}
 		height := 1 + s.commentRowsForMouse(rows, rowIndex, comments)
 		if logicalY >= visualY && logicalY < visualY+height {
 			return rowIndex, logicalY - visualY, true
@@ -1821,7 +1858,8 @@ func (s *uiDiffViewState) selectionPointForMouse(rows []diff.Row, mouse vaxis.Mo
 	if s.sideBySide {
 		return s.sideBySideSelectionPointForMouse(rows, mouse, metrics)
 	}
-	rowIndex, ok := s.rowForMouse(mouse)
+	visualRow, ok := s.rowForMouse(mouse)
+	rowIndex := s.unifiedDocRow(rows, visualRow)
 	if !ok || rowIndex < 0 || rowIndex >= len(rows) || !selectableDiffRow(rows[rowIndex].Kind) {
 		return selectionPoint{}, false
 	}
@@ -1906,11 +1944,7 @@ func (s *uiDiffViewState) rowForMouse(mouse vaxis.Mouse) (int, bool) {
 	if !ok || mouse.Row < 0 {
 		return 0, false
 	}
-	w := s.Widget().(uiDiffView)
-	count := len(w.Rows)
-	if s.sideBySide {
-		count = len(s.sideBySideRows(w.Rows))
-	}
+	count := s.visualRowCount(s.Widget().(uiDiffView).Rows)
 	if count <= 0 {
 		return 0, false
 	}
@@ -1950,7 +1984,7 @@ func (s *uiDiffViewState) documentRowForMouse(mouse vaxis.Mouse) int {
 	if !ok {
 		return -1
 	}
-	return row
+	return s.unifiedDocRow(s.Widget().(uiDiffView).Rows, row)
 }
 
 func uiDiffCodeOffset(rows []diff.Row) int {
@@ -1970,6 +2004,7 @@ func (s *uiDiffViewState) clearPendingKeys() {
 	s.pendingBracket = 0
 	s.pendingSpace = false
 	s.pendingD = false
+	s.pendingZ = false
 }
 
 func (s *uiDiffViewState) openCommentEditor(rows []diff.Row) {
@@ -2682,7 +2717,7 @@ func (s *uiDiffViewState) moveIntoCommentEditor(rows []diff.Row, delta int) bool
 	if delta < 0 {
 		start := s.cursor.Row - 1
 		for row := start; row >= 0; row-- {
-			if !uiDiffCursorableRow(rows[row]) {
+			if !s.rowCursorable(rows, row) {
 				continue
 			}
 			if s.commentEditorBodyForRow(rows, row) == "" {
@@ -3148,7 +3183,15 @@ func (s *uiDiffViewState) buildItem(rows []diff.Row, rowIndex int, theme vui.The
 	yanked := s.lineYanked(rowIndex)
 	var item vui.Widget
 	if !uiDiffRowUsesGrid(row) {
-		item = s.buildFullWidthRow(row, rowIndex, uiDiffRowBackground(active, selected, yanked, theme), active, s.cursor.Col, selected, yanked, theme, wrap)
+		background := uiDiffRowBackground(active, selected, yanked, theme)
+		item = s.buildFullWidthRow(row, rowIndex, background, active, s.cursor.Col, selected, yanked, theme, wrap)
+		if summary := s.foldSummary(rows, rowIndex, theme); summary != nil {
+			if background != 0 {
+				summary = uiDiffApplyBackground(summary, background)
+			}
+			// Keep the summary on screen when a long header is clipped.
+			item = vui.Row(vui.Flexible(item), vui.RichText{Spans: uiTextSpans(summary), MaxLines: 1})
+		}
 	} else {
 		item = s.buildRow(row, rowIndex, active, selected, yanked, s.cursor.Col, theme, highlightedRows, s.searchMatches, wrap, metrics)
 	}
@@ -4236,9 +4279,9 @@ func (s *uiDiffViewState) setCursorRow(rows []diff.Row, row int) {
 		return
 	}
 	if s.selectionActive {
-		s.cursor.Row = uiDiffSelectableTargetRow(rows, row, signUIDiffInt(row-s.cursor.Row))
+		s.cursor.Row = s.selectableTargetRow(rows, row, signUIDiffInt(row-s.cursor.Row))
 	} else {
-		s.cursor.Row = uiDiffCursorTargetRow(rows, row, signUIDiffInt(row-s.cursor.Row))
+		s.cursor.Row = s.cursorTargetRow(rows, row, signUIDiffInt(row-s.cursor.Row))
 	}
 	s.cursor.Col = s.clampCursorCol(rows, s.cursor.Row, s.cursorCol)
 	s.cursorCol = s.cursor.Col
@@ -4263,9 +4306,9 @@ func (s *uiDiffViewState) cursorStepScroll(rows []diff.Row, delta int) bool {
 	oldRow := s.cursor.Row
 	target := oldRow + delta
 	if s.selectionActive {
-		target = uiDiffSelectableTargetRow(rows, target, delta)
+		target = s.selectableTargetRow(rows, target, delta)
 	} else {
-		target = uiDiffCursorTargetRow(rows, target, delta)
+		target = s.cursorTargetRow(rows, target, delta)
 	}
 	if target == oldRow {
 		return false
@@ -4274,12 +4317,7 @@ func (s *uiDiffViewState) cursorStepScroll(rows []diff.Row, delta int) bool {
 	s.cursor.Col = s.clampCursorCol(rows, s.cursor.Row, s.cursorCol)
 	s.cursorCol = s.cursor.Col
 
-	visualRow := target
-	if s.sideBySide {
-		if row, ok := uiDiffSideBySideVisualIndex(rows, target); ok {
-			visualRow = row
-		}
-	}
+	visualRow, _ := s.visualIndex(rows, target)
 	s.revealVisualCursorRow(visualRow)
 	s.SetState(func() {})
 	return true
@@ -4309,48 +4347,51 @@ func (s *uiDiffViewState) revealVisualCursorRow(visualRow int) {
 	}
 }
 
-func uiDiffCursorTargetRow(rows []diff.Row, row int, direction int) int {
+func (s *uiDiffViewState) cursorTargetRow(rows []diff.Row, row int, direction int) int {
 	if len(rows) == 0 {
 		return 0
 	}
 	row = clampUIDiffInt(row, 0, len(rows)-1)
-	if uiDiffCursorableRow(rows[row]) {
+	if s.rowCursorable(rows, row) {
 		return row
 	}
 	if direction == 0 {
 		direction = 1
 	}
 	for next := row + direction; next >= 0 && next < len(rows); next += direction {
-		if uiDiffCursorableRow(rows[next]) {
+		if s.rowCursorable(rows, next) {
 			return next
 		}
 	}
 	for next := row - direction; next >= 0 && next < len(rows); next -= direction {
-		if uiDiffCursorableRow(rows[next]) {
+		if s.rowCursorable(rows, next) {
 			return next
 		}
 	}
 	return row
 }
 
-func uiDiffSelectableTargetRow(rows []diff.Row, row int, direction int) int {
+func (s *uiDiffViewState) selectableTargetRow(rows []diff.Row, row int, direction int) int {
 	if len(rows) == 0 {
 		return 0
 	}
+	selectable := func(row int) bool {
+		return selectableDiffRow(rows[row].Kind) && !s.rowHidden(rows, row)
+	}
 	row = clampUIDiffInt(row, 0, len(rows)-1)
-	if selectableDiffRow(rows[row].Kind) {
+	if selectable(row) {
 		return row
 	}
 	if direction >= 0 {
 		for next := row + 1; next < len(rows); next++ {
-			if selectableDiffRow(rows[next].Kind) {
+			if selectable(next) {
 				return next
 			}
 		}
 	}
 	if direction <= 0 {
 		for next := row - 1; next >= 0; next-- {
-			if selectableDiffRow(rows[next].Kind) {
+			if selectable(next) {
 				return next
 			}
 		}
@@ -4400,12 +4441,7 @@ func (s *uiDiffViewState) jumpCommit(rows []diff.Row, direction int) {
 
 func (s *uiDiffViewState) setCursorRowAtStart(rows []diff.Row, row int) {
 	s.setCursorRow(rows, row)
-	visualRow := s.cursor.Row
-	if s.sideBySide {
-		if row, ok := uiDiffSideBySideVisualIndex(rows, visualRow); ok {
-			visualRow = row
-		}
-	}
+	visualRow, _ := s.visualIndex(rows, s.cursor.Row)
 	s.list.ScrollToIndex(visualRow, vui.ScrollAlignStart)
 }
 
@@ -4420,6 +4456,8 @@ func (s *uiDiffViewState) jumpNote(rows []diff.Row, drafts []review.CommentDraft
 }
 
 func (s *uiDiffViewState) jumpTargetRow(rows []diff.Row, targets []int, direction int) {
+	// Folded changes and notes are skipped; search and the finders unfold instead.
+	targets = slices.DeleteFunc(targets, func(row int) bool { return s.rowHidden(rows, row) })
 	if len(targets) == 0 {
 		return
 	}
@@ -4525,6 +4563,7 @@ func (s *uiDiffViewState) applySearchMatch(rows []diff.Row) {
 		return
 	}
 	match := s.searchMatches[s.searchIndex]
+	s.revealRow(rows, match.Row)
 	if s.searchMode {
 		s.setCursorPointWithoutReveal(rows, selectionPoint{Row: match.Row, Col: match.Start})
 		return
@@ -4595,7 +4634,10 @@ func (s *uiDiffViewState) moveCursorPageRows(rows []diff.Row, delta int) {
 		return
 	}
 	if !s.sideBySide {
-		s.moveCursorRows(rows, delta)
+		// Page sizes count list items, which skip folded rows.
+		visualRow, _ := s.visualIndex(rows, s.cursor.Row)
+		target := s.unifiedDocRow(rows, clampUIDiffInt(visualRow+delta, 0, s.visualRowCount(rows)-1))
+		s.moveCursorRows(rows, target-s.cursor.Row)
 		return
 	}
 
@@ -4615,7 +4657,7 @@ func (s *uiDiffViewState) moveCursorPageRows(rows []diff.Row, delta int) {
 	for _, step := range []int{direction, -direction} {
 		for index := target; index >= 0 && index < len(sideRows); index += step {
 			docRow := sideBySideDocRowForSide(sideRows[index], side)
-			if !uiDiffCursorableRow(rows[docRow]) || s.selectionActive && !selectableDiffRow(rows[docRow].Kind) {
+			if !s.rowCursorable(rows, docRow) || s.selectionActive && !selectableDiffRow(rows[docRow].Kind) {
 				continue
 			}
 			s.setCursorRow(rows, docRow)
@@ -4629,13 +4671,7 @@ func (s *uiDiffViewState) revealCursorRow() {
 	if !ok {
 		return
 	}
-	cursorRow := s.cursor.Row
-	if s.sideBySide {
-		w := s.Widget().(uiDiffView)
-		if visualRow, ok := uiDiffSideBySideVisualIndex(w.Rows, s.cursor.Row); ok {
-			cursorRow = visualRow
-		}
-	}
+	cursorRow, _ := s.visualIndex(s.Widget().(uiDiffView).Rows, s.cursor.Row)
 	if cursorRow < first {
 		s.list.ScrollToIndex(cursorRow, vui.ScrollAlignStart)
 		return
@@ -4662,13 +4698,9 @@ func (s *uiDiffViewState) revealCommentEditor(rows []diff.Row) {
 	if !s.commentEditorActive || s.commentEditorRow < 0 || s.commentEditorRow >= len(rows) {
 		return
 	}
-	row := s.commentEditorRow
-	if s.sideBySide {
-		visualRow, ok := uiDiffSideBySideVisualIndex(rows, row)
-		if !ok {
-			return
-		}
-		row = visualRow
+	row, ok := s.visualIndex(rows, s.commentEditorRow)
+	if !ok {
+		return
 	}
 	if s.list.Attached() && s.scroll.Attached() {
 		if offset, ok := s.list.OffsetForIndex(row); ok {
@@ -4691,15 +4723,6 @@ func (s *uiDiffViewState) revealCommentEditor(rows []diff.Row) {
 		}
 	}
 	s.list.ScrollToIndex(row, vui.ScrollAlignEnd)
-}
-
-func uiDiffSideBySideVisualIndex(rows []diff.Row, docRow int) (int, bool) {
-	for index, row := range uiDiffSideBySideRows(rows) {
-		if rowContainsDocRow(row, docRow) {
-			return index, true
-		}
-	}
-	return 0, false
 }
 
 func (s *uiDiffViewState) moveCursorCols(rows []diff.Row, delta int) {
@@ -4849,7 +4872,7 @@ func (s *uiDiffViewState) clampCursor(rows []diff.Row) {
 		s.cursorCol = 0
 		return
 	}
-	s.cursor.Row = uiDiffCursorTargetRow(rows, s.cursor.Row, 1)
+	s.cursor.Row = s.cursorTargetRow(rows, s.cursor.Row, 1)
 	s.cursor.Col = s.clampCursorCol(rows, s.cursor.Row, s.cursor.Col)
 	s.cursorCol = s.cursor.Col
 }

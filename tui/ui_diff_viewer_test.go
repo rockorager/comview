@@ -5661,3 +5661,145 @@ func TestUIDiffViewWrapsCodeThroughMeasuredRows(t *testing.T) {
 		t.Fatalf("next row after wrapped row = %q, want n", got)
 	}
 }
+
+const uiDiffFoldTestInput = `diff --git a/a.go b/a.go
+--- a/a.go
++++ b/a.go
+@@ -1,2 +1,2 @@
+-alpha old
++alpha new
+ keep one
+@@ -10,2 +10,2 @@
+-beta old
++beta new
+ keep two
+diff --git a/b.go b/b.go
+--- a/b.go
++++ b/b.go
+@@ -1,2 +1,2 @@
+ ctx
+-gamma old
++gamma new
+`
+
+// uiDiffTypeKeys sends each rune of keys and returns the painted screen.
+// Like the app's runner, it keeps pumping while frames are requested.
+func uiDiffTypeKeys(app *vui.App, size vui.Size, keys string) *vui.Painter {
+	for _, r := range keys {
+		if r == '\n' {
+			app.Send(vaxis.Key{Keycode: vaxis.KeyEnter})
+		} else {
+			app.Send(vaxis.Key{Text: string(r), Keycode: r})
+		}
+		for frame := 0; frame < 10 && app.FrameRequested(); frame++ {
+			app.Pump(size)
+		}
+	}
+	p := vui.NewPainter(size)
+	app.Paint(p)
+	return p
+}
+
+func uiDiffFoldTestApp(t *testing.T, size vui.Size) *vui.App {
+	t.Helper()
+	rows, err := rowsForInput(uiDiffFoldTestInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := newUIDiffTestApp(rows, false)
+	app.Pump(size)
+	app.Pump(size)
+	return app
+}
+
+func TestUIDiffViewFoldsHunksAndFiles(t *testing.T) {
+	size := vui.Size{Width: 60, Height: 20}
+	app := uiDiffFoldTestApp(t, size)
+	cursorRow := func(p *vui.Painter) int {
+		return uiDiffHighlightedScreenRow(p, uiDiffCursorRowBackground(uiDiffTestTheme()))
+	}
+
+	p := uiDiffTypeKeys(app, size, "za")
+	if row := uiDiffPainterRowContaining(p, "alpha"); row >= 0 {
+		t.Fatalf("folded hunk still shows alpha on row %d", row)
+	}
+	header := uiDiffPainterRowContaining(p, "@@ -1,2 +1,2 @@")
+	if got := uiDiffPainterText(p, header); !strings.Contains(got, "⋯ 3 lines +1 -1") {
+		t.Fatalf("folded hunk header = %q, want hidden line count and stats", got)
+	}
+	if got := cursorRow(p); got != header {
+		t.Fatalf("cursor row = %d, want folded hunk header %d", got, header)
+	}
+	if uiDiffPainterRowContaining(p, "beta new") < 0 {
+		t.Fatal("folding the first hunk hid the second hunk")
+	}
+
+	// On a folded hunk header, zc folds the enclosing file.
+	p = uiDiffTypeKeys(app, size, "zc")
+	file := uiDiffPainterRowContaining(p, "a.go")
+	if got := uiDiffPainterText(p, file); !strings.Contains(got, "⋯ 9 lines +2 -2") {
+		t.Fatalf("folded file header = %q, want hidden line count and stats", got)
+	}
+	if row := uiDiffPainterRowContaining(p, "beta"); row >= 0 {
+		t.Fatalf("folded file still shows beta on row %d", row)
+	}
+	if got := uiDiffPainterRowContaining(p, "b.go"); got != file+2 {
+		t.Fatalf("next file row = %d, want %d after one separator", got, file+2)
+	}
+
+	// Opening the file keeps its first hunk folded.
+	p = uiDiffTypeKeys(app, size, "za")
+	if uiDiffPainterRowContaining(p, "alpha") >= 0 || uiDiffPainterRowContaining(p, "beta new") < 0 {
+		t.Fatalf("reopened file lost its hunk folds: alpha row %d, beta row %d", uiDiffPainterRowContaining(p, "alpha"), uiDiffPainterRowContaining(p, "beta new"))
+	}
+
+	p = uiDiffTypeKeys(app, size, "zR")
+	if uiDiffPainterRowContaining(p, "alpha old") < 0 || uiDiffPainterRowContaining(p, "⋯") >= 0 {
+		t.Fatal("zR left content folded")
+	}
+}
+
+func TestUIDiffViewSearchUnfoldsAndChangeJumpsSkipFolds(t *testing.T) {
+	size := vui.Size{Width: 60, Height: 20}
+	app := uiDiffFoldTestApp(t, size)
+
+	p := uiDiffTypeKeys(app, size, "zM")
+	if uiDiffPainterRowCountContaining(p, "⋯") != 2 || uiDiffPainterRowContaining(p, "ctx") >= 0 {
+		t.Fatal("zM did not fold both files")
+	}
+
+	p = uiDiffTypeKeys(app, size, "/ctx\n")
+	ctx := uiDiffPainterRowContaining(p, "ctx")
+	if ctx < 0 {
+		t.Fatal("search did not unfold the file containing the match")
+	}
+	if uiDiffPainterRowContaining(p, "alpha") >= 0 {
+		t.Fatal("search unfolded a file without a match")
+	}
+	if got := uiDiffHighlightedScreenRow(p, uiDiffCursorRowBackground(uiDiffTestTheme())); got != ctx {
+		t.Fatalf("cursor row = %d, want search match row %d", got, ctx)
+	}
+
+	// The only earlier changes are folded, so [c stays put.
+	p = uiDiffTypeKeys(app, size, "[c")
+	if got := uiDiffHighlightedScreenRow(p, uiDiffCursorRowBackground(uiDiffTestTheme())); got != ctx {
+		t.Fatalf("cursor row after [c = %d, want %d", got, ctx)
+	}
+}
+
+func TestUIDiffViewFoldsInSideBySideLayout(t *testing.T) {
+	size := vui.Size{Width: 80, Height: 20}
+	app := uiDiffFoldTestApp(t, size)
+
+	p := uiDiffTypeKeys(app, size, "sza")
+	if row := uiDiffPainterRowContaining(p, "alpha"); row >= 0 {
+		t.Fatalf("folded hunk still shows alpha on row %d", row)
+	}
+	if uiDiffPainterRowContaining(p, "⋯ 3 lines") < 0 || uiDiffPainterRowContaining(p, "beta new") < 0 {
+		t.Fatal("side-by-side fold lost the summary or the next hunk")
+	}
+	p = uiDiffTypeKeys(app, size, "za")
+	if uiDiffPainterRowContaining(p, "alpha new") < 0 {
+		t.Fatal("za did not reopen the hunk")
+	}
+}

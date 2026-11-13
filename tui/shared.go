@@ -118,6 +118,8 @@ var helpKeybinds = []helpKeybind{
 	{Key: "J / K", READMEKey: "`J` / `K`", Action: "Next / previous commit"},
 	{Key: "]c / [c", READMEKey: "`]c` / `[c`", Action: "Next / previous change"},
 	{Key: "]n / [n", READMEKey: "`]n` / `[n`", Action: "Next / previous note"},
+	{Key: "za / zc", READMEKey: "`za` / `zc`", Action: "Toggle / close fold"},
+	{Key: "zM / zR", READMEKey: "`zM` / `zR`", Action: "Fold all files / unfold all"},
 	{Key: "s", READMEKey: "`s`", Action: "Toggle side-by-side view"},
 	{Key: "t", READMEKey: "`t`", Action: "Choose theme"},
 	{Key: "Space e", READMEKey: "`<space>e`", Action: "Find file in diff"},
